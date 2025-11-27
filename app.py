@@ -3,6 +3,7 @@ import json
 import os
 import uuid
 from urllib.parse import unquote
+import time
 
 # -----------------------
 # File paths
@@ -56,7 +57,6 @@ body { background-color:#f0f2f6; }
 .quiz-card:hover { transform: scale(1.05); cursor:pointer; }
 </style>
 """, unsafe_allow_html=True)
-
 st.markdown("<h1>Online Quiz System</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
@@ -71,6 +71,8 @@ if "reg_number" not in st.session_state:
     st.session_state.reg_number = ""
 if "current_quiz_id" not in st.session_state:
     st.session_state.current_quiz_id = None
+if "start_time" not in st.session_state:
+    st.session_state.start_time = None
 
 # -----------------------
 # Detect quiz link in URL
@@ -98,13 +100,12 @@ if not st.session_state.teacher_logged_in and not st.session_state.current_quiz_
 # -----------------------
 if st.session_state.teacher_logged_in:
     st.header("Admin Dashboard")
-    
-    # --- Create New Quiz ---
     with st.expander("📌 Create New Quiz"):
         quiz_name = st.text_input("Quiz Name")
         question = st.text_input("Question")
         options = st.text_area("Options (comma separated)")
         answer = st.text_input("Answer")
+        time_limit = st.number_input("Time Limit (minutes)", min_value=1, max_value=180, value=5)
         if st.button("Add Question"):
             if not all([quiz_name, question, options, answer]):
                 st.error("Fill all fields!")
@@ -115,18 +116,18 @@ if st.session_state.teacher_logged_in:
                     "question": question,
                     "options": [opt.strip() for opt in options.split(",")],
                     "answer": answer.strip()
-                }]}
+                }], "time_limit": time_limit}
                 save_json(QUIZZES_FILE, quizzes)
                 link = generate_quiz_link(quiz_id)
                 st.success("Quiz created successfully!")
                 st.markdown(f"Share this link with students: [Open Quiz]({link})")
 
-    # --- View Existing Quizzes ---
+    # View existing quizzes and results
     st.subheader("All Quizzes")
     quizzes = load_json(QUIZZES_FILE)
     if quizzes:
         for quiz_id, quiz in quizzes.items():
-            st.markdown(f"**{quiz['name']}**")
+            st.markdown(f"**{quiz['name']}** (Time: {quiz.get('time_limit', 5)} min)")
             link = generate_quiz_link(quiz_id)
             st.markdown(f"Link: [Open Quiz]({link})")
             results = load_json(RESULTS_FILE).get(quiz_id, [])
@@ -142,7 +143,6 @@ if st.session_state.teacher_logged_in:
 # Student Quiz Panel
 # -----------------------
 if st.session_state.current_quiz_id is None:
-    # Show all quizzes as clickable cards for students (without login)
     st.subheader("Available Quizzes")
     quizzes = load_json(QUIZZES_FILE)
     if quizzes:
@@ -164,42 +164,60 @@ if st.session_state.current_quiz_id:
         st.error("Invalid or expired quiz link")
     else:
         quiz = quizzes[quiz_id]
-        st.subheader(f"Quiz: {quiz['name']}")
+        st.subheader(f"Quiz: {quiz['name']} (Time: {quiz.get('time_limit',5)} min)")
 
-        # --- Student Info Form ---
-        if not st.session_state.student_name or not st.session_state.reg_number:
-            with st.form("student_form"):
-                st.session_state.student_name = st.text_input("Full Name")
-                st.session_state.reg_number = st.text_input("Registration Number")
-                submitted = st.form_submit_button("Start Quiz")
-                if submitted:
-                    if not st.session_state.student_name or not st.session_state.reg_number:
-                        st.error("Please fill all fields")
-                    else:
-                        st.success(f"Welcome {st.session_state.student_name}!")
+        # Check if student already attempted
+        results = load_json(RESULTS_FILE).get(quiz_id, [])
+        if any(r["reg_number"] == st.session_state.reg_number for r in results):
+            st.warning("You have already attempted this quiz.")
         else:
-            # --- Quiz Questions ---
-            user_answers = {}
-            for idx, q in enumerate(quiz["questions"]):
-                st.markdown(f"**Q{idx+1}: {q['question']}**")
-                ans = st.radio("Choose an answer:", q["options"], key=f"{quiz_id}_{idx}")
-                user_answers[q['question']] = ans
+            if not st.session_state.student_name or not st.session_state.reg_number:
+                with st.form("student_form"):
+                    st.session_state.student_name = st.text_input("Full Name")
+                    st.session_state.reg_number = st.text_input("Registration Number")
+                    submitted = st.form_submit_button("Start Quiz")
+                    if submitted:
+                        if not st.session_state.student_name or not st.session_state.reg_number:
+                            st.error("Please fill all fields")
+                        else:
+                            st.session_state.start_time = time.time()
+                            st.success(f"Welcome {st.session_state.student_name}!")
+            else:
+                # Timer display
+                time_limit_seconds = quiz.get("time_limit",5)*60
+                elapsed = time.time() - st.session_state.start_time
+                remaining = int(time_limit_seconds - elapsed)
+                if remaining <=0:
+                    st.warning("Time is up! Submitting your quiz...")
+                    remaining = 0
+                    auto_submit = True
+                else:
+                    auto_submit = False
+                    st.info(f"Time Remaining: {remaining//60} min {remaining%60} sec")
 
-            if st.button("Submit Quiz"):
-                score = sum([1 for q in quiz["questions"] if user_answers[q['question']] == q['answer']])
-                results = load_json(RESULTS_FILE)
-                quiz_results = results.get(quiz_id, [])
-                quiz_results.append({
-                    "name": st.session_state.student_name,
-                    "reg_number": st.session_state.reg_number,
-                    "score": score,
-                    "answers": user_answers
-                })
-                results[quiz_id] = quiz_results
-                save_json(RESULTS_FILE, results)
-                st.success(f"🎉 {st.session_state.student_name}, You scored {score}/{len(quiz['questions'])}")
-                st.balloons()
-                # Reset for next student
-                st.session_state.student_name = ""
-                st.session_state.reg_number = ""
-                st.session_state.current_quiz_id = None
+                # Quiz questions
+                user_answers = {}
+                for idx, q in enumerate(quiz["questions"]):
+                    st.markdown(f"**Q{idx+1}: {q['question']}**")
+                    ans = st.radio("Choose an answer:", q["options"], key=f"{quiz_id}_{idx}")
+                    user_answers[q['question']] = ans
+
+                if st.button("Submit Quiz") or auto_submit:
+                    score = sum([1 for q in quiz["questions"] if user_answers[q['question']] == q['answer']])
+                    results = load_json(RESULTS_FILE)
+                    quiz_results = results.get(quiz_id, [])
+                    quiz_results.append({
+                        "name": st.session_state.student_name,
+                        "reg_number": st.session_state.reg_number,
+                        "score": score,
+                        "answers": user_answers
+                    })
+                    results[quiz_id] = quiz_results
+                    save_json(RESULTS_FILE, results)
+                    st.success(f"🎉 {st.session_state.student_name}, You scored {score}/{len(quiz['questions'])}")
+                    st.balloons()
+                    # Reset session state
+                    st.session_state.student_name = ""
+                    st.session_state.reg_number = ""
+                    st.session_state.current_quiz_id = None
+                    st.session_state.start_time = None
