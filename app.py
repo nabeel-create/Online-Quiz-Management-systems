@@ -34,8 +34,8 @@ def save_json(file_path, data):
 # -----------------------
 # Page Setup
 # -----------------------
-st.set_page_config(page_title="Quiz Portal", page_icon="🎓", layout="centered")
-st.markdown("<h1 style='text-align:center;color:#4B0082;'>Quiz Portal</h1>", unsafe_allow_html=True)
+st.set_page_config(page_title="Online Quiz System", page_icon="🎓", layout="centered")
+st.markdown("<h1 style='text-align:center;color:#4B0082;'>Online Quiz System</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
 # -----------------------
@@ -61,7 +61,7 @@ if "quiz" in query_params:
 # Teacher Login
 # -----------------------
 if not st.session_state.teacher_logged_in and not st.session_state.current_quiz_id:
-    st.subheader("Teacher Login")
+    st.subheader("Teacher/Admin Login")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     
@@ -73,7 +73,7 @@ if not st.session_state.teacher_logged_in and not st.session_state.current_quiz_
             st.error("Invalid credentials")
 
 # -----------------------
-# Teacher Panel
+# Teacher/Admin Panel
 # -----------------------
 if st.session_state.teacher_logged_in:
     st.header("Admin Panel - Create Quiz")
@@ -96,7 +96,10 @@ if st.session_state.teacher_logged_in:
                 "answer": answer.strip()
             })
             save_json(QUIZZES_FILE, quizzes)
-            quiz_link = f"{st.get_url()}?quiz={quiz_id}"
+            
+            # Generate shareable link
+            # Replace with your actual deployed Streamlit URL
+            quiz_link = f"https://onlinequiz.streamlit.app//?quiz={quiz_id}"
             st.success("Question added successfully!")
             st.markdown(f"Share this link with students: [Open Quiz]({quiz_link})")
 
@@ -145,6 +148,7 @@ if st.session_state.current_quiz_id:
                 save_json(RESULTS_FILE, results)
                 st.success(f"🎉 {st.session_state.student_name}, You scored {score}/{len(quiz['questions'])}")
                 st.balloons()
+                # Reset session state for new student
                 st.session_state.student_name = ""
                 st.session_state.reg_number = ""
                 st.session_state.current_quiz_id = None
