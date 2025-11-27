@@ -34,7 +34,7 @@ def save_json(file_path, data):
 
 def generate_quiz_link(quiz_id):
     # Replace with your deployed Streamlit URL
-    return f"http://localhost:8501/?quiz={quiz_id}"
+    return f"https://onlinequiz.streamlit.app//?quiz={quiz_id}"
 
 # -----------------------
 # Page Setup
