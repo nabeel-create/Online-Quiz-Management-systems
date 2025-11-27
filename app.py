@@ -31,14 +31,33 @@ def save_json(file_path, data):
         json.dump(data, f, indent=4)
 
 def generate_quiz_link(quiz_id):
-    # Replace with your deployed Streamlit Cloud URL after deployment
+    # Replace with your deployed Streamlit URL
     return f"http://localhost:8501/?quiz={quiz_id}"
 
 # -----------------------
-# Streamlit Page Setup
+# Page Setup
 # -----------------------
 st.set_page_config(page_title="Online Quiz System", page_icon="🎓", layout="wide")
-st.markdown("<h1 style='text-align:center;color:#4B0082;'>Online Quiz System</h1>", unsafe_allow_html=True)
+st.markdown("""
+<style>
+h1 { text-align:center; color:#4B0082; }
+body { background-color:#f0f2f6; }
+.quiz-card {
+    background-color:#4B0082; 
+    color:white; 
+    padding:20px; 
+    margin:15px; 
+    border-radius:12px; 
+    text-align:center; 
+    font-size:20px; 
+    font-weight:bold;
+    transition: transform 0.2s;
+}
+.quiz-card:hover { transform: scale(1.05); cursor:pointer; }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("<h1>Online Quiz System</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
 # -----------------------
@@ -110,7 +129,6 @@ if st.session_state.teacher_logged_in:
             st.markdown(f"**{quiz['name']}**")
             link = generate_quiz_link(quiz_id)
             st.markdown(f"Link: [Open Quiz]({link})")
-            # View results
             results = load_json(RESULTS_FILE).get(quiz_id, [])
             if results:
                 with st.expander("View Results"):
@@ -123,6 +141,22 @@ if st.session_state.teacher_logged_in:
 # -----------------------
 # Student Quiz Panel
 # -----------------------
+if st.session_state.current_quiz_id is None:
+    # Show all quizzes as clickable cards for students (without login)
+    st.subheader("Available Quizzes")
+    quizzes = load_json(QUIZZES_FILE)
+    if quizzes:
+        cols = st.columns(3)
+        for i, (quiz_id, quiz) in enumerate(quizzes.items()):
+            with cols[i % 3]:
+                if st.button(quiz["name"], key=quiz_id):
+                    st.session_state.current_quiz_id = quiz_id
+    else:
+        st.info("No quizzes available yet.")
+
+# -----------------------
+# Take Quiz
+# -----------------------
 if st.session_state.current_quiz_id:
     quizzes = load_json(QUIZZES_FILE)
     quiz_id = st.session_state.current_quiz_id
@@ -131,7 +165,7 @@ if st.session_state.current_quiz_id:
     else:
         quiz = quizzes[quiz_id]
         st.subheader(f"Quiz: {quiz['name']}")
-        
+
         # --- Student Info Form ---
         if not st.session_state.student_name or not st.session_state.reg_number:
             with st.form("student_form"):
