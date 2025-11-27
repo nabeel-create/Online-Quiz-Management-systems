@@ -172,34 +172,30 @@ if st.session_state.current_quiz_id:
     else:
         st.subheader(f"Quiz: {quiz['name']} (Time: {quiz.get('time_limit',5)} min)")
 
-        # --- Student info ---
-        if not st.session_state.student_name or not st.session_state.reg_number:
-            with st.form("student_form"):
-                st.session_state.student_name = st.text_input("Full Name")
-                st.session_state.reg_number = st.text_input("Registration Number")
-                submitted = st.form_submit_button("Start Quiz")
-                if submitted:
-                    if not st.session_state.student_name or not st.session_state.reg_number:
-                        st.error("Please fill all fields")
-                    else:
-                        st.session_state.start_time = time.time()
-                        st.success(f"Welcome {st.session_state.student_name}!")
+        # Check previous attempts
+        results = load_json(RESULTS_FILE).get(quiz_id, [])
+        if any(r["reg_number"] == st.session_state.reg_number for r in results):
+            st.warning("You have already attempted this quiz.")
         else:
-            # Check previous attempts
-            results_data = load_json(RESULTS_FILE).get(quiz_id, [])
-            if any(r["reg_number"] == st.session_state.reg_number for r in results_data):
-                st.warning("You have already attempted this quiz.")
+            # Student info
+            if not st.session_state.student_name or not st.session_state.reg_number:
+                with st.form("student_form"):
+                    st.session_state.student_name = st.text_input("Full Name")
+                    st.session_state.reg_number = st.text_input("Registration Number")
+                    submitted = st.form_submit_button("Start Quiz")
+                    if submitted:
+                        if not st.session_state.student_name or not st.session_state.reg_number:
+                            st.error("Please fill all fields")
+                        else:
+                            st.session_state.start_time = time.time()
+                            st.success(f"Welcome {st.session_state.student_name}!")
             else:
-                # Initialize start_time if None
-                if st.session_state.start_time is None:
-                    st.session_state.start_time = time.time()
-
                 # Timer
                 time_limit_seconds = quiz.get("time_limit",5)*60
                 elapsed = time.time() - st.session_state.start_time
                 remaining = int(time_limit_seconds - elapsed)
                 auto_submit = False
-                if remaining <= 0:
+                if remaining <=0:
                     st.warning("Time is up! Submitting your quiz...")
                     remaining = 0
                     auto_submit = True
@@ -215,19 +211,18 @@ if st.session_state.current_quiz_id:
 
                 if st.button("Submit Quiz") or auto_submit:
                     score = sum([1 for q in quiz["questions"] if user_answers[q['question']] == q['answer']])
-                    results_data = load_json(RESULTS_FILE)
-                    quiz_results = results_data.get(quiz_id, [])
+                    results = load_json(RESULTS_FILE)
+                    quiz_results = results.get(quiz_id, [])
                     quiz_results.append({
                         "name": st.session_state.student_name,
                         "reg_number": st.session_state.reg_number,
                         "score": score,
                         "answers": user_answers
                     })
-                    results_data[quiz_id] = quiz_results
-                    save_json(RESULTS_FILE, results_data)
+                    results[quiz_id] = quiz_results
+                    save_json(RESULTS_FILE, results)
                     st.success(f"🎉 {st.session_state.student_name}, You scored {score}/{len(quiz['questions'])}")
                     st.balloons()
-                    # Reset state
                     st.session_state.student_name = ""
                     st.session_state.reg_number = ""
                     st.session_state.current_quiz_id = None
