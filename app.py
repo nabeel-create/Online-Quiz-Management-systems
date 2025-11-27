@@ -1,272 +1,112 @@
 import streamlit as st
-import sqlite3
-import bcrypt
-from datetime import datetime
+import json
+import os
 
 # -----------------------
-# Database setup
+# File paths
 # -----------------------
-conn = sqlite3.connect("quiz.db", check_same_thread=False)
-c = conn.cursor()
+QUIZZES_FILE = "data/quizzes.json"
+RESULTS_FILE = "data/results.json"
 
-# Tables
-c.execute('''CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY,
-    password TEXT NOT NULL,
-    role TEXT NOT NULL
-)''')
+os.makedirs("data", exist_ok=True)
 
-c.execute('''CREATE TABLE IF NOT EXISTS quizzes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    quiz_name TEXT,
-    question TEXT,
-    options TEXT,
-    answer TEXT,
-    teacher TEXT
-)''')
+if not os.path.exists(QUIZZES_FILE):
+    with open(QUIZZES_FILE, "w") as f:
+        json.dump({
+            "Sample Quiz": [
+                {"question": "Capital of Pakistan?", "options": ["Islamabad", "Karachi", "Lahore", "Peshawar"], "answer": "Islamabad"},
+                {"question": "2 + 2 = ?", "options": ["3", "4", "5", "6"], "answer": "4"}
+            ]
+        }, f)
 
-c.execute('''CREATE TABLE IF NOT EXISTS assignments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    description TEXT,
-    deadline TEXT,
-    teacher TEXT
-)''')
-
-c.execute('''CREATE TABLE IF NOT EXISTS results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT,
-    quiz_name TEXT,
-    score INTEGER,
-    user_answers TEXT
-)''')
-
-c.execute('''CREATE TABLE IF NOT EXISTS uploads (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT,
-    assignment_name TEXT,
-    file_name TEXT
-)''')
-
-conn.commit()
+if not os.path.exists(RESULTS_FILE):
+    with open(RESULTS_FILE, "w") as f:
+        json.dump({}, f)
 
 # -----------------------
-# Utility functions
+# Load / Save JSON
 # -----------------------
-def hash_password(password):
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+def load_json(file_path):
+    with open(file_path, "r") as f:
+        return json.load(f)
 
-def check_password(password, hashed):
-    return bcrypt.checkpw(password.encode(), hashed.encode())
-
-def get_user(username):
-    c.execute("SELECT username, password, role FROM users WHERE username=?", (username,))
-    return c.fetchone()
-
-def add_user(username, password, role):
-    c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-              (username, hash_password(password), role))
-    conn.commit()
+def save_json(file_path, data):
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=4)
 
 # -----------------------
-# Session state init
+# Streamlit Page Setup
 # -----------------------
-for key in ["logged_in", "username", "role", "section"]:
-    if key not in st.session_state:
-        st.session_state[key] = None
-
-# -----------------------
-# Page setup
-# -----------------------
-st.set_page_config(page_title="Online School System", layout="wide")
-st.title("🏫 Online School System")
+st.set_page_config(page_title="Student Quiz Portal", page_icon="📝", layout="centered")
+st.markdown("<h1 style='text-align:center;color:#4B0082;'>🎓 Student Quiz Portal</h1>", unsafe_allow_html=True)
+st.markdown("---")
 
 # -----------------------
-# LOGIN PANEL
+# Session State
 # -----------------------
-if not st.session_state.logged_in:
-    st.subheader("Login")
-    role = st.selectbox("Login as", ["Admin", "Teacher", "Student"])
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-
-    if st.button("Login"):
-        user = get_user(username)
-        if user and check_password(password, user[1]) and user[2] == role.lower():
-            st.session_state.logged_in = True
-            st.session_state.username = username
-            st.session_state.role = role.lower()
-            st.success(f"Logged in as {username} ({role})")
-        else:
-            st.error("Invalid credentials or role")
+if "student_name" not in st.session_state:
+    st.session_state.student_name = ""
+if "reg_number" not in st.session_state:
+    st.session_state.reg_number = ""
+if "current_quiz" not in st.session_state:
+    st.session_state.current_quiz = None
 
 # -----------------------
-# CARD FUNCTION
+# Student Info Form
 # -----------------------
-def create_card(title, emoji, key):
-    col1, col2, col3 = st.columns([1,1,1])
-    with col1:
-        if st.button(emoji + " " + title, key=key):
-            st.session_state.section = key
-
-# -----------------------
-# DASHBOARD AFTER LOGIN
-# -----------------------
-if st.session_state.logged_in:
-    st.subheader(f"Welcome, {st.session_state.username} ({st.session_state.role.capitalize()})")
-
-    if st.session_state.role == "admin":
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("👩‍🏫 Register Teacher", key="reg_teacher"):
-                st.session_state.section = "reg_teacher"
-        with col2:
-            if st.button("👨‍🎓 Register Student", key="reg_student"):
-                st.session_state.section = "reg_student"
-        with col3:
-            if st.button("📄 View Users", key="view_users"):
-                st.session_state.section = "view_users"
-
-        # Sections
-        if st.session_state.section == "reg_teacher":
-            st.subheader("Register Teacher")
-            t_user = st.text_input("Username", key="t_user")
-            t_pass = st.text_input("Password", type="password", key="t_pass")
-            if st.button("Register Teacher"):
-                if get_user(t_user):
-                    st.error("Username already exists!")
-                else:
-                    add_user(t_user, t_pass, "teacher")
-                    st.success(f"Teacher '{t_user}' registered!")
-
-        elif st.session_state.section == "reg_student":
-            st.subheader("Register Student")
-            s_user = st.text_input("Username", key="s_user")
-            s_pass = st.text_input("Password", type="password", key="s_pass")
-            if st.button("Register Student"):
-                if get_user(s_user):
-                    st.error("Username already exists!")
-                else:
-                    add_user(s_user, s_pass, "student")
-                    st.success(f"Student '{s_user}' registered!")
-
-        elif st.session_state.section == "view_users":
-            st.subheader("All Users")
-            c.execute("SELECT username, role FROM users")
-            users = c.fetchall()
-            for u, r in users:
-                st.write(f"- {u} ({r})")
-
-    elif st.session_state.role == "teacher":
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("📝 Add Quiz", key="add_quiz"):
-                st.session_state.section = "add_quiz"
-        with col2:
-            if st.button("📄 Add Assignment", key="add_assign"):
-                st.session_state.section = "add_assignment"
-        with col3:
-            if st.button("📊 View Results", key="view_results"):
-                st.session_state.section = "view_results"
-
-        # Sections
-        if st.session_state.section == "add_quiz":
-            st.subheader("Add Quiz")
-            quiz_name = st.text_input("Quiz Name", key="quiz_name")
-            question = st.text_input("Question", key="question")
-            options = st.text_area("Options (comma separated)")
-            answer = st.text_input("Answer", key="answer")
-            if st.button("Add Question"):
-                c.execute("INSERT INTO quizzes (quiz_name, question, options, answer, teacher) VALUES (?, ?, ?, ?, ?)",
-                          (quiz_name, question, options, answer, st.session_state.username))
-                conn.commit()
-                st.success(f"Question added to quiz '{quiz_name}'!")
-
-        elif st.session_state.section == "add_assignment":
-            st.subheader("Add Assignment")
-            assign_name = st.text_input("Assignment Name", key="assign_name")
-            assign_desc = st.text_area("Description", key="assign_desc")
-            deadline = st.date_input("Deadline")
-            if st.button("Add Assignment"):
-                c.execute("INSERT INTO assignments (name, description, deadline, teacher) VALUES (?, ?, ?, ?)",
-                          (assign_name, assign_desc, str(deadline), st.session_state.username))
-                conn.commit()
-                st.success(f"Assignment '{assign_name}' added!")
-
-        elif st.session_state.section == "view_results":
-            st.subheader("Student Results")
-            c.execute("SELECT username, quiz_name, score FROM results")
-            data = c.fetchall()
-            if data:
-                for u, q, s in data:
-                    st.write(f"- {u} | Quiz: {q} | Score: {s}")
+if not st.session_state.student_name or not st.session_state.reg_number:
+    with st.form("student_form"):
+        st.subheader("Enter Your Details to Start Quiz")
+        st.session_state.student_name = st.text_input("Full Name")
+        st.session_state.reg_number = st.text_input("Registration Number")
+        submitted = st.form_submit_button("Start Quiz")
+        if submitted:
+            if not st.session_state.student_name or not st.session_state.reg_number:
+                st.error("Please fill all fields")
             else:
-                st.info("No results yet.")
+                st.success(f"Welcome {st.session_state.student_name}!")
 
-    elif st.session_state.role == "student":
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("📝 Take Quiz", key="take_quiz"):
-                st.session_state.section = "take_quiz"
-        with col2:
-            if st.button("📂 Upload Assignment", key="upload_assign"):
-                st.session_state.section = "upload_assignment"
-        with col3:
-            if st.button("📊 View Scores", key="view_scores"):
-                st.session_state.section = "view_scores"
+# -----------------------
+# Display Quiz Links
+# -----------------------
+if st.session_state.student_name and st.session_state.reg_number and not st.session_state.current_quiz:
+    st.subheader("Available Quizzes")
+    quizzes = load_json(QUIZZES_FILE)
+    if quizzes:
+        for quiz_name in quizzes:
+            st.markdown(f"<a href='#{quiz_name}' style='text-decoration:none; color:white;'><button style='background-color:#4B0082; color:white; padding:10px 20px; border:none; border-radius:8px; margin:5px'>{quiz_name}</button></a>", unsafe_allow_html=True)
+            if st.button(f"Take Quiz: {quiz_name}", key=quiz_name):
+                st.session_state.current_quiz = quiz_name
+    else:
+        st.info("No quizzes available at the moment.")
 
-        # Sections
-        if st.session_state.section == "take_quiz":
-            st.subheader("Take Quiz")
-            c.execute("SELECT DISTINCT quiz_name FROM quizzes")
-            quizzes = [q[0] for q in c.fetchall()]
-            if quizzes:
-                quiz_choice = st.selectbox("Select Quiz", quizzes)
-                if quiz_choice:
-                    c.execute("SELECT question, options, answer FROM quizzes WHERE quiz_name=?", (quiz_choice,))
-                    questions = c.fetchall()
-                    user_score = 0
-                    user_answers = {}
-                    for idx, (q, opts, ans) in enumerate(questions):
-                        st.write(f"Q{idx+1}: {q}")
-                        opts_list = [o.strip() for o in opts.split(",")]
-                        user_ans = st.radio("Choose answer:", opts_list, key=f"{quiz_choice}_{idx}")
-                        user_answers[q] = user_ans
-                        if user_ans == ans:
-                            user_score += 1
-                    if st.button("Submit Quiz"):
-                        c.execute("INSERT INTO results (username, quiz_name, score, user_answers) VALUES (?, ?, ?, ?)",
-                                  (st.session_state.username, quiz_choice, user_score, str(user_answers)))
-                        conn.commit()
-                        st.success(f"You scored {user_score}/{len(questions)}")
-            else:
-                st.info("No quizzes available")
+# -----------------------
+# Take Quiz Panel
+# -----------------------
+if st.session_state.current_quiz:
+    st.subheader(f"Quiz: {st.session_state.current_quiz}")
+    quizzes = load_json(QUIZZES_FILE)
+    questions = quizzes[st.session_state.current_quiz]
 
-        elif st.session_state.section == "upload_assignment":
-            st.subheader("Upload Assignment")
-            c.execute("SELECT name FROM assignments")
-            assignments = [a[0] for a in c.fetchall()]
-            if assignments:
-                assign_choice = st.selectbox("Select Assignment", assignments)
-                uploaded_file = st.file_uploader("Choose file")
-                if st.button("Submit Assignment"):
-                    if uploaded_file:
-                        file_path = f"data/{st.session_state.username}_{assign_choice}_{uploaded_file.name}"
-                        with open(file_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                        c.execute("INSERT INTO uploads (username, assignment_name, file_name) VALUES (?, ?, ?)",
-                                  (st.session_state.username, assign_choice, uploaded_file.name))
-                        conn.commit()
-                        st.success("Assignment uploaded successfully!")
-            else:
-                st.info("No assignments available")
+    user_answers = {}
+    for idx, q in enumerate(questions):
+        st.markdown(f"**Q{idx+1}: {q['question']}**")
+        ans = st.radio("Choose an answer:", q["options"], key=f"{st.session_state.current_quiz}_{idx}")
+        user_answers[q['question']] = ans
 
-        elif st.session_state.section == "view_scores":
-            st.subheader("Your Quiz Scores")
-            c.execute("SELECT quiz_name, score FROM results WHERE username=?", (st.session_state.username,))
-            scores = c.fetchall()
-            if scores:
-                for q, s in scores:
-                    st.write(f"- {q}: {s}")
-            else:
-                st.info("No scores yet.")
+    if st.button("Submit Quiz"):
+        score = sum([1 for q in questions if user_answers[q['question']] == q['answer']])
+        results = load_json(RESULTS_FILE)
+        quiz_results = results.get(st.session_state.current_quiz, [])
+        quiz_results.append({
+            "name": st.session_state.student_name,
+            "reg_number": st.session_state.reg_number,
+            "score": score,
+            "answers": user_answers
+        })
+        results[st.session_state.current_quiz] = quiz_results
+        save_json(RESULTS_FILE, results)
+
+        st.success(f"🎉 {st.session_state.student_name}, You scored {score}/{len(questions)}")
+        st.balloons()
+        st.session_state.current_quiz = None
