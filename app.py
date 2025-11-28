@@ -1,5 +1,5 @@
 import streamlit as st
-import json, uuid, os, time
+import json, uuid, os, time, math
 from datetime import datetime
 import pandas as pd
 import altair as alt
@@ -39,59 +39,39 @@ st.set_page_config(page_title="Online Quiz System", layout="wide")
 # ---------------------------
 st.markdown("""
 <style>
-body {
-    transition: background-color 0.5s, color 0.5s;
-}
+body { transition: background-color 0.5s, color 0.5s; }
 .quiz-card {
-    padding: 20px;
+    padding: 15px;
     border-radius: 12px;
     background: #f8f9fa;
     border: 2px solid #eee;
+    margin-bottom: 15px;
     transition: 0.3s;
 }
-.quiz-card:hover {
-    background: #f0f0f0;
-    border-color: #999;
-}
-.dark .quiz-card {
-    background: #2e2e2e;
-    color: white;
-    border-color: #555;
-}
-.button-style {
-    background-color: #4CAF50;
-    color: white;
-    padding: 10px 25px;
-    font-size: 16px;
-    border-radius: 8px;
-}
+.quiz-card:hover { background: #f0f0f0; border-color: #999; }
+.dark .quiz-card { background: #2e2e2e; color: white; border-color: #555; }
+.button-style { background-color: #4CAF50; color: white; padding: 10px 20px; font-size: 16px; border-radius: 8px; }
+@media only screen and (max-width: 768px) { .quiz-card { padding: 10px; } .button-style { width: 100%; } }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------
 # SESSION STATE
 # ---------------------------
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "current_quiz" not in st.session_state:
-    st.session_state.current_quiz = None
-if "start_time" not in st.session_state:
-    st.session_state.start_time = None
-if "theme" not in st.session_state:
-    st.session_state.theme = "light"
+if "logged_in" not in st.session_state: st.session_state.logged_in = False
+if "current_quiz" not in st.session_state: st.session_state.current_quiz = None
+if "start_time" not in st.session_state: st.session_state.start_time = None
+if "theme" not in st.session_state: st.session_state.theme = "light"
+if "question_index" not in st.session_state: st.session_state.question_index = 0
+if "quiz_started" not in st.session_state: st.session_state.quiz_started = False
+if "answers" not in st.session_state: st.session_state.answers = {}
 
 # ---------------------------
 # BASE URL (Secrets + fallback)
 # ---------------------------
 def get_base_url():
-    try:
-        return st.secrets["APP_URL"]
-    except:
-        try:
-            url = st.request.url
-            return url.split("?")[0]
-        except:
-            return "http://localhost:8501"
+    try: return st.secrets["APP_URL"]
+    except: return "http://localhost:8501"
 
 BASE_URL = get_base_url()
 
@@ -99,26 +79,20 @@ BASE_URL = get_base_url()
 # Theme Toggle
 # ---------------------------
 def toggle_theme():
-    if st.session_state.theme == "light":
-        st.session_state.theme = "dark"
-    else:
-        st.session_state.theme = "light"
+    st.session_state.theme = "dark" if st.session_state.theme=="light" else "light"
 
-if st.button("Toggle Dark/Light Theme"):
-    toggle_theme()
-
-if st.session_state.theme == "dark":
-    st.markdown("<body class='dark'>", unsafe_allow_html=True)
+if st.button("Toggle Dark/Light Theme"): toggle_theme()
+if st.session_state.theme == "dark": st.markdown("<body class='dark'>", unsafe_allow_html=True)
 
 # ---------------------------
-# ADMIN LOGIN
+# Admin Login
 # ---------------------------
 def admin_login():
     st.title("🔐 Admin Login")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
-        if username == "admin" and password == "admin123":
+        if username=="admin" and password=="admin123":
             st.session_state.logged_in = True
             st.success("Login Successful!")
             st.rerun()
@@ -126,32 +100,27 @@ def admin_login():
             st.error("Invalid credentials!")
 
 # ---------------------------
-# ADMIN DASHBOARD
+# Admin Dashboard
 # ---------------------------
 def admin_panel():
     st.title("👑 Admin Dashboard")
     tab1, tab2, tab3, tab4 = st.tabs(["➕ Create Quiz", "📄 Quiz List", "📊 Student Results", "📈 Analytics"])
 
-    # -----------------
-    # Create Quiz
-    # -----------------
     with tab1:
-        st.subheader("Create a New Quiz")
+        st.subheader("Create New Quiz")
         quiz_name = st.text_input("Quiz Name")
         time_limit = st.number_input("Time Limit (Minutes)", 1, 60, 5)
         if st.button("Create Quiz"):
-            if not quiz_name:
-                st.error("Enter quiz name!")
+            if not quiz_name: st.error("Enter quiz name!")
             else:
                 quiz_id = str(uuid.uuid4())
-                quizzes[quiz_id] = {"name": quiz_name, "time_limit": time_limit, "questions":[]}
+                quizzes[quiz_id] = {"name":quiz_name, "time_limit":time_limit, "questions":[]}
                 save_json(QUIZ_FILE, quizzes)
-                quiz_link = f"{BASE_URL}?quiz={quiz_id}"
                 st.success("✅ Quiz Created!")
-                st.text_input("Share this link with students:", quiz_link)
+                st.text_input("Share Link:", f"{BASE_URL}?quiz={quiz_id}")
 
         st.write("---")
-        st.subheader("Add Questions to Quiz")
+        st.subheader("Add Questions")
         if quizzes:
             selected = st.selectbox("Select Quiz", list(quizzes.keys()), format_func=lambda x: quizzes[x]["name"])
             q = st.text_input("Question")
@@ -159,65 +128,60 @@ def admin_panel():
             ans = st.text_input("Correct Answer")
             if st.button("Add Question"):
                 if q and opts and ans:
-                    quizzes[selected]["questions"].append({
-                        "question": q,
-                        "options": [o.strip() for o in opts.split(",")],
-                        "answer": ans.strip()
-                    })
+                    quizzes[selected]["questions"].append({"question":q,"options":[o.strip() for o in opts.split(",")],"answer":ans.strip()})
                     save_json(QUIZ_FILE, quizzes)
                     st.success("✅ Question added!")
-                else:
-                    st.error("Fill all fields!")
-        else:
-            st.info("No quizzes yet. Create one!")
+                else: st.error("Fill all fields!")
+        else: st.info("No quizzes yet.")
 
-    # -----------------
-    # Quiz List
-    # -----------------
     with tab2:
         st.subheader("All Quizzes")
-        for qid, qdata in quizzes.items():
+        for qid,qdata in quizzes.items():
             with st.container():
                 st.markdown(f"<div class='quiz-card'>", unsafe_allow_html=True)
                 st.write(f"### {qdata['name']}")
                 st.write(f"Time Limit: **{qdata['time_limit']} min**")
                 st.write(f"Questions: **{len(qdata['questions'])}**")
-                quiz_link = f"{BASE_URL}?quiz={qid}"
-                st.code(quiz_link)
+                st.code(f"{BASE_URL}?quiz={qid}")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-    # -----------------
-    # Student Results
-    # -----------------
     with tab3:
         st.subheader("Student Submissions")
         if results:
             df = pd.DataFrame.from_dict(results, orient="index")
             st.dataframe(df)
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download CSV", data=csv, file_name="quiz_results.csv")
-        else:
-            st.info("No submissions yet.")
+            st.download_button("📥 Download CSV", df.to_csv(index=False).encode('utf-8'), "quiz_results.csv")
+        else: st.info("No submissions yet.")
 
-    # -----------------
-    # Analytics
-    # -----------------
     with tab4:
         st.subheader("Quiz Analytics")
         if results:
             df = pd.DataFrame.from_dict(results, orient="index")
             chart = alt.Chart(df).mark_bar().encode(
-                x="quiz_id:N",
-                y="score:Q",
-                color="quiz_id:N",
-                tooltip=["name", "score"]
+                x="quiz_id:N", y="score:Q", color="quiz_id:N", tooltip=["name","score"]
             )
             st.altair_chart(chart, use_container_width=True)
-        else:
-            st.info("No data for analytics yet.")
+        else: st.info("No data yet.")
 
 # ---------------------------
-# STUDENT QUIZ PAGE
+# Circular Timer
+# ---------------------------
+def circular_timer(seconds_left, total_seconds):
+    pct = seconds_left/total_seconds
+    radius = 80
+    color = "#4CAF50" if pct>0.2 else "#FF0000"
+    svg = f"""
+    <svg width="200" height="200">
+      <circle cx="100" cy="100" r="{radius}" fill="none" stroke="#eee" stroke-width="15"/>
+      <circle cx="100" cy="100" r="{radius}" fill="none" stroke="{color}" stroke-width="15"
+        stroke-dasharray="{2*math.pi*radius*pct}, {2*math.pi*radius}"/>
+      <text x="100" y="110" text-anchor="middle" font-size="24" fill="black">{int(seconds_left)}s</text>
+    </svg>
+    """
+    st.markdown(svg, unsafe_allow_html=True)
+
+# ---------------------------
+# Student Quiz Page
 # ---------------------------
 def student_quiz_page(quiz_id):
     if quiz_id not in quizzes:
@@ -227,61 +191,54 @@ def student_quiz_page(quiz_id):
     st.title(f"📝 {quiz['name']}")
     st.info(f"Time Limit: {quiz['time_limit']} min")
 
-    name = st.text_input("Your Name")
-    regno = st.text_input("Registration Number")
-
-    if st.button("Start Quiz"):
-        if not name or not regno:
-            st.error("Enter your details!")
-            return
-        st.session_state.current_quiz = quiz_id
-        st.session_state.start_time = time.time()
-        st.session_state.name = name
-        st.session_state.regno = regno
-        st.rerun()
-
-    # Quiz started
-    if st.session_state.current_quiz == quiz_id:
+    if not st.session_state.quiz_started:
+        name = st.text_input("Your Name")
+        regno = st.text_input("Registration Number")
+        if st.button("Start Quiz"):
+            if not name or not regno: st.error("Enter details!"); return
+            st.session_state.current_quiz = quiz_id
+            st.session_state.start_time = time.time()
+            st.session_state.name = name
+            st.session_state.regno = regno
+            st.session_state.question_index = 0
+            st.session_state.answers = {}
+            st.session_state.quiz_started = True
+            st.rerun()
+    else:
+        # Timer
         start = st.session_state.start_time
-        remaining = quiz["time_limit"]*60 - (time.time()-start)
-        if remaining <= 0:
-            st.error("⏳ Time Over!")
-            return
+        total_seconds = quiz["time_limit"]*60
+        remaining = total_seconds - (time.time()-start)
+        if remaining<=0: st.error("⏳ Time Over!"); return
+        circular_timer(remaining,total_seconds)
 
-        # Timer progress bar
-        pct = (quiz["time_limit"]*60 - remaining)/(quiz["time_limit"]*60)
-        st.progress(pct)
+        # Swipeable question
+        idx = st.session_state.question_index
+        q = quiz["questions"][idx]
+        st.write(f"Q{idx+1}/{len(quiz['questions'])}: {q['question']}")
+        choice = st.radio("", q["options"], key=f"q{idx}")
+        st.session_state.answers[idx] = choice
 
-        answers = {}
-        total_q = len(quiz["questions"])
-        for i, q in enumerate(quiz["questions"]):
-            st.write(f"Q{i+1}/{total_q}: {q['question']}")
-            answers[i] = st.radio("", q["options"], key=f"q{i}")
-            st.progress((i+1)/total_q)
-
-        if st.button("Submit Quiz"):
-            score = sum(1 for i, q in enumerate(quiz["questions"]) if answers[i]==q["answer"])
-            rid = str(uuid.uuid4())
-            results[rid] = {
-                "name": st.session_state.name,
-                "regno": st.session_state.regno,
-                "quiz_id": quiz_id,
-                "score": score,
-                "date": str(datetime.now())
-            }
-            save_json(RESULT_FILE, results)
-            st.success(f"🎉 Quiz Submitted! Score: {score}/{len(quiz['questions'])}")
-            st.balloons()
+        col1,col2 = st.columns(2)
+        with col1:
+            if idx>0 and st.button("⬅ Previous"): st.session_state.question_index-=1; st.rerun()
+        with col2:
+            if idx<len(quiz["questions"])-1 and st.button("Next ➡"): st.session_state.question_index+=1; st.rerun()
+            elif idx==len(quiz["questions"])-1 and st.button("Submit Quiz"):
+                score=sum(1 for i,q in enumerate(quiz["questions"]) if st.session_state.answers[i]==q["answer"])
+                rid=str(uuid.uuid4())
+                results[rid]={"name":st.session_state.name,"regno":st.session_state.regno,"quiz_id":quiz_id,"score":score,"date":str(datetime.now())}
+                save_json(RESULT_FILE,results)
+                st.success(f"🎉 Quiz Submitted! Score: {score}/{len(quiz['questions'])}")
+                st.balloons()
+                st.session_state.quiz_started=False
 
 # ---------------------------
-# ROUTER
+# Router
 # ---------------------------
 params = st.experimental_get_query_params()
-quiz_id = params.get("quiz", [None])[0]
+quiz_id = params.get("quiz",[None])[0]
 
-if quiz_id:
-    student_quiz_page(quiz_id)
-elif not st.session_state.logged_in:
-    admin_login()
-else:
-    admin_panel()
+if quiz_id: student_quiz_page(quiz_id)
+elif not st.session_state.logged_in: admin_login()
+else: admin_panel()
