@@ -2,6 +2,7 @@ import streamlit as st
 import json, uuid, os, time
 from datetime import datetime
 import pandas as pd
+import altair as alt
 
 # ---------------------------
 # Ensure data folder exists
@@ -38,6 +39,9 @@ st.set_page_config(page_title="Online Quiz System", layout="wide")
 # ---------------------------
 st.markdown("""
 <style>
+body {
+    transition: background-color 0.5s, color 0.5s;
+}
 .quiz-card {
     padding: 20px;
     border-radius: 12px;
@@ -49,11 +53,15 @@ st.markdown("""
     background: #f0f0f0;
     border-color: #999;
 }
+.dark .quiz-card {
+    background: #2e2e2e;
+    color: white;
+    border-color: #555;
+}
 .button-style {
     background-color: #4CAF50;
     color: white;
     padding: 10px 25px;
-    text-align: center;
     font-size: 16px;
     border-radius: 8px;
 }
@@ -69,9 +77,11 @@ if "current_quiz" not in st.session_state:
     st.session_state.current_quiz = None
 if "start_time" not in st.session_state:
     st.session_state.start_time = None
+if "theme" not in st.session_state:
+    st.session_state.theme = "light"
 
 # ---------------------------
-# BASE URL (st.secrets)
+# BASE URL (Secrets + fallback)
 # ---------------------------
 def get_base_url():
     try:
@@ -84,6 +94,21 @@ def get_base_url():
             return "http://localhost:8501"
 
 BASE_URL = get_base_url()
+
+# ---------------------------
+# Theme Toggle
+# ---------------------------
+def toggle_theme():
+    if st.session_state.theme == "light":
+        st.session_state.theme = "dark"
+    else:
+        st.session_state.theme = "light"
+
+if st.button("Toggle Dark/Light Theme"):
+    toggle_theme()
+
+if st.session_state.theme == "dark":
+    st.markdown("<body class='dark'>", unsafe_allow_html=True)
 
 # ---------------------------
 # ADMIN LOGIN
@@ -105,7 +130,7 @@ def admin_login():
 # ---------------------------
 def admin_panel():
     st.title("👑 Admin Dashboard")
-    tab1, tab2, tab3 = st.tabs(["➕ Create Quiz", "📄 Quiz List", "📊 Student Results"])
+    tab1, tab2, tab3, tab4 = st.tabs(["➕ Create Quiz", "📄 Quiz List", "📊 Student Results", "📈 Analytics"])
 
     # -----------------
     # Create Quiz
@@ -174,6 +199,23 @@ def admin_panel():
         else:
             st.info("No submissions yet.")
 
+    # -----------------
+    # Analytics
+    # -----------------
+    with tab4:
+        st.subheader("Quiz Analytics")
+        if results:
+            df = pd.DataFrame.from_dict(results, orient="index")
+            chart = alt.Chart(df).mark_bar().encode(
+                x="quiz_id:N",
+                y="score:Q",
+                color="quiz_id:N",
+                tooltip=["name", "score"]
+            )
+            st.altair_chart(chart, use_container_width=True)
+        else:
+            st.info("No data for analytics yet.")
+
 # ---------------------------
 # STUDENT QUIZ PAGE
 # ---------------------------
@@ -198,19 +240,24 @@ def student_quiz_page(quiz_id):
         st.session_state.regno = regno
         st.rerun()
 
-    # If quiz started
+    # Quiz started
     if st.session_state.current_quiz == quiz_id:
         start = st.session_state.start_time
         remaining = quiz["time_limit"]*60 - (time.time()-start)
         if remaining <= 0:
             st.error("⏳ Time Over!")
             return
-        st.warning(f"⏰ Time Left: {int(remaining)} sec")
+
+        # Timer progress bar
+        pct = (quiz["time_limit"]*60 - remaining)/(quiz["time_limit"]*60)
+        st.progress(pct)
 
         answers = {}
+        total_q = len(quiz["questions"])
         for i, q in enumerate(quiz["questions"]):
-            st.write(f"### Q{i+1}: {q['question']}")
+            st.write(f"Q{i+1}/{total_q}: {q['question']}")
             answers[i] = st.radio("", q["options"], key=f"q{i}")
+            st.progress((i+1)/total_q)
 
         if st.button("Submit Quiz"):
             score = sum(1 for i, q in enumerate(quiz["questions"]) if answers[i]==q["answer"])
