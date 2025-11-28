@@ -140,6 +140,7 @@ def generate_mcqs_from_text_ai(text, num_questions=5):
     {text}
     """
     buffer = ""
+    output_container = st.empty()
     try:
         stream = openrouter.chat.send(
             model="google/gemma-3n-e2b-it:free",
@@ -148,7 +149,6 @@ def generate_mcqs_from_text_ai(text, num_questions=5):
         )
 
         for chunk in stream:
-            # Safe extraction
             if hasattr(chunk, "choices") and len(chunk.choices) > 0:
                 choice = chunk.choices[0]
                 delta = getattr(choice, "delta", None)
@@ -156,7 +156,7 @@ def generate_mcqs_from_text_ai(text, num_questions=5):
                     content = delta.get("content")
                     if content:
                         buffer += content
-                        st.code(buffer, language="json")
+                        output_container.code(buffer, language="json")
 
         # Parse JSON after streaming completes
         import re
@@ -304,11 +304,14 @@ def admin_panel():
                 if not text_input.strip():
                     st.error("Please provide text!")
                 else:
-                    new_qs = generate_mcqs_from_text_ai(text_input, num_questions)
+                    with st.spinner("Generating MCQs..."):
+                        new_qs = generate_mcqs_from_text_ai(text_input, num_questions)
                     if new_qs:
                         quizzes[selected]["questions"].extend(new_qs)
                         save_json(QUIZ_FILE, quizzes)
                         st.success(f"{len(new_qs)} AI-generated MCQs added to {quizzes[selected]['name']}!")
+                    else:
+                        st.warning("No MCQs generated. Try shorter text or fewer questions.")
         else:
             st.info("OpenRouter not available. Install package and add API key to secrets for AI MCQs.")
 
