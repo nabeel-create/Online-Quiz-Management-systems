@@ -4,6 +4,7 @@ from datetime import datetime
 import pandas as pd
 import altair as alt
 from streamlit_autorefresh import st_autorefresh
+import random
 
 # ---------------------------
 # Ensure data folder exists
@@ -96,9 +97,29 @@ def admin_login():
         if username=="admin" and password=="admin123":
             st.session_state.logged_in = True
             st.success("Login Successful!")
-            st.rerun()
+            st.experimental_rerun()
         else:
             st.error("Invalid credentials!")
+
+# ---------------------------
+# Generate MCQs
+# ---------------------------
+def generate_mcqs(topic, n=5):
+    sample_questions = {
+        "Python": [
+            ("What is Python?", ["A snake", "A programming language", "A car", "A fruit"], "A programming language", "Python is a high-level programming language."),
+            ("Which keyword is used to define a function?", ["def", "func", "function", "lambda"], "def", "The 'def' keyword is used to define functions."),
+            ("Which operator is used for exponentiation?", ["^", "**", "%", "//"], "**", "The '**' operator is used for exponentiation in Python."),
+            ("Which of these is mutable?", ["Tuple", "String", "List", "Integer"], "List", "Lists in Python are mutable, others are immutable."),
+            ("Which method adds an item to a list?", ["add()", "append()", "insert()", "extend()"], "append()", "append() adds an item at the end of the list."),
+            ("What does 'len()' do?", ["Returns length", "Adds numbers", "Deletes element", "None"], "Returns length", "len() returns the length of a sequence."),
+            ("Which keyword is used to handle exceptions?", ["try", "catch", "error", "handle"], "try", "Python uses 'try' to catch exceptions."),
+            ("What is a list comprehension?", ["A loop", "A shorthand to create lists", "A function", "A module"], "A shorthand to create lists", "List comprehension is a concise way to create lists."),
+            ("Which method removes last item from list?", ["remove()", "pop()", "delete()", "discard()"], "pop()", "pop() removes the last item by default."),
+            ("Which is correct to import math module?", ["import math", "include math", "use math", "require math"], "import math", "Python imports modules using 'import'.")
+        ]
+    }
+    return random.sample(sample_questions.get(topic, []), min(n,len(sample_questions.get(topic, []))))
 
 # ---------------------------
 # Admin Dashboard
@@ -121,19 +142,34 @@ def admin_panel():
                 st.text_input("Share Link:", f"{BASE_URL}?quiz={quiz_id}")
 
         st.write("---")
-        st.subheader("Add Questions")
+        st.subheader("Add Questions Manually")
         if quizzes:
             selected = st.selectbox("Select Quiz", list(quizzes.keys()), format_func=lambda x: quizzes[x]["name"])
             q = st.text_input("Question")
             opts = st.text_input("Options (comma separated)")
             ans = st.text_input("Correct Answer")
+            desc = st.text_input("Description / Explanation")
             if st.button("Add Question"):
                 if q and opts and ans:
-                    quizzes[selected]["questions"].append({"question":q,"options":[o.strip() for o in opts.split(",")],"answer":ans.strip()})
+                    quizzes[selected]["questions"].append({"question":q,"options":[o.strip() for o in opts.split(",")],"answer":ans.strip(),"description":desc.strip()})
                     save_json(QUIZ_FILE, quizzes)
                     st.success("✅ Question added!")
                 else: st.error("Fill all fields!")
         else: st.info("No quizzes yet.")
+
+        st.write("---")
+        st.subheader("Auto-generate MCQs")
+        topic = st.selectbox("Select Topic for Auto MCQs", ["Python"])
+        num_qs = st.number_input("Number of Questions", 1, 10, 5)
+        if st.button("Generate MCQs"):
+            if not quizzes: st.error("Create a quiz first!")
+            else:
+                selected = st.selectbox("Select Quiz to Add Auto Questions", list(quizzes.keys()), format_func=lambda x: quizzes[x]["name"])
+                new_qs = generate_mcqs(topic, num_qs)
+                for q, opts, ans, desc in new_qs:
+                    quizzes[selected]["questions"].append({"question":q,"options":opts,"answer":ans,"description":desc})
+                save_json(QUIZ_FILE, quizzes)
+                st.success(f"{len(new_qs)} MCQs added to {quizzes[selected]['name']}!")
 
     with tab2:
         st.subheader("All Quizzes")
@@ -208,7 +244,7 @@ def student_quiz_page(quiz_id):
             st.session_state.question_index = 0
             st.session_state.answers = {}
             st.session_state.quiz_started = True
-            st.rerun()
+            st.experimental_rerun()
     else:
         start = st.session_state.start_time
         total_seconds = quiz["time_limit"]*60
@@ -224,15 +260,25 @@ def student_quiz_page(quiz_id):
 
         col1,col2 = st.columns(2)
         with col1:
-            if idx>0 and st.button("⬅ Previous"): st.session_state.question_index-=1; st.rerun()
+            if idx>0 and st.button("⬅ Previous"): st.session_state.question_index-=1; st.experimental_rerun()
         with col2:
-            if idx<len(quiz["questions"])-1 and st.button("Next ➡"): st.session_state.question_index+=1; st.rerun()
+            if idx<len(quiz["questions"])-1 and st.button("Next ➡"): st.session_state.question_index+=1; st.experimental_rerun()
             elif idx==len(quiz["questions"])-1 and st.button("Submit Quiz"):
                 score=sum(1 for i,q in enumerate(quiz["questions"]) if st.session_state.answers[i]==q["answer"])
                 rid=str(uuid.uuid4())
                 results[rid]={"name":st.session_state.name,"regno":st.session_state.regno,"quiz_id":quiz_id,"score":score,"date":str(datetime.now())}
                 save_json(RESULT_FILE,results)
                 st.success(f"🎉 Quiz Submitted! Score: {score}/{len(quiz['questions'])}")
+
+                # Show explanations
+                st.write("### ✅ Answer Explanations:")
+                for i, q in enumerate(quiz["questions"]):
+                    st.write(f"Q{i+1}: {q['question']}")
+                    st.write(f"Your Answer: {st.session_state.answers.get(i,'Not Answered')}")
+                    st.write(f"Correct Answer: {q['answer']}")
+                    st.write(f"Explanation: {q.get('description','')}")
+                    st.write("---")
+
                 st.balloons()
                 st.session_state.quiz_started=False
 
@@ -242,6 +288,9 @@ def student_quiz_page(quiz_id):
 params = st.experimental_get_query_params()
 quiz_id = params.get("quiz",[None])[0]
 
-if quiz_id: student_quiz_page(quiz_id)
-elif not st.session_state.logged_in: admin_login()
-else: admin_panel()
+if quiz_id: 
+    student_quiz_page(quiz_id)
+elif not st.session_state.logged_in: 
+    admin_login()
+else: 
+    admin_panel()
