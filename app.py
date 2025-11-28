@@ -57,7 +57,6 @@ if "logged_in" not in st.session_state:
 if "current_quiz" not in st.session_state:
     st.session_state.current_quiz = None
 
-
 # --------------------------------------------
 # ADMIN LOGIN SCREEN
 # --------------------------------------------
@@ -71,10 +70,9 @@ def admin_login():
         if username == "admin" and password == "admin123":
             st.session_state.logged_in = True
             st.success("Login Successful!")
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Invalid admin credentials.")
-
 
 # --------------------------------------------
 # ADMIN PANEL
@@ -94,27 +92,29 @@ def admin_panel():
         time_limit = st.number_input("Quiz Time Limit (Minutes)", min_value=1, max_value=60, value=5)
 
         if st.button("Create Quiz"):
-            quiz_id = str(uuid.uuid4())
-            quizzes[quiz_id] = {
-                "name": quiz_name,
-                "time_limit": time_limit,
-                "questions": []
-            }
-            save_json(QUIZ_FILE, quizzes)
+            if not quiz_name:
+                st.error("Enter quiz name!")
+            else:
+                quiz_id = str(uuid.uuid4())
+                quizzes[quiz_id] = {
+                    "name": quiz_name,
+                    "time_limit": time_limit,
+                    "questions": []
+                }
+                save_json(QUIZ_FILE, quizzes)
 
-            quiz_link = f"{st.secrets['APP_URL']}?quiz={quiz_id}"
+                quiz_link = f"{st.secrets['APP_URL']}?quiz={quiz_id}"
 
-            st.success("Quiz created successfully!")
-            st.markdown(f"### 🔗 Share Quiz Link")
-            st.code(quiz_link)
-
-            st.info("Give this link to students.")
+                st.success("Quiz created successfully!")
+                st.markdown("### 🔗 Share Quiz Link")
+                st.code(quiz_link)
 
         st.write("---")
 
         # Add questions to existing quiz
         st.subheader("Add Questions to Quiz")
         quiz_ids = list(quizzes.keys())
+
         if quiz_ids:
             selected_quiz = st.selectbox("Select Quiz", quiz_ids, format_func=lambda x: quizzes[x]["name"])
 
@@ -131,8 +131,10 @@ def admin_panel():
                     })
                     save_json(QUIZ_FILE, quizzes)
                     st.success("Question Added!")
+                else:
+                    st.error("Fill all fields!")
         else:
-            st.warning("Create a quiz first.")
+            st.warning("No quiz exists. Create a quiz first.")
 
     # ------------------------------
     # VIEW QUIZZES
@@ -163,15 +165,16 @@ def admin_panel():
             st.info("No submissions yet.")
         else:
             for rid, rdata in results.items():
+                qname = quizzes.get(rdata['quiz_id'], {}).get("name", "Unknown Quiz")
+                
                 st.markdown(f"""
                 ### 🧑 {rdata['name']}  
                 **Reg #:** {rdata['regno']}  
-                **Quiz:** {quizzes[rdata['quiz_id']]['name']}  
+                **Quiz:** {qname}  
                 **Score:** {rdata['score']}  
                 **Date:** {rdata['date']}  
                 """)
                 st.write("---")
-
 
 # --------------------------------------------
 # STUDENT QUIZ SCREEN
@@ -184,7 +187,7 @@ def student_quiz_page(quiz_id):
     quiz = quizzes[quiz_id]
 
     st.title(f"📝 {quiz['name']}")
-    st.info(f"Time Limit: {quiz['time_limit']} Minutes")
+    st.info(f"⏳ Time Limit: {quiz['time_limit']} Minutes")
 
     # Student info
     name = st.text_input("Enter Your Name")
@@ -199,12 +202,12 @@ def student_quiz_page(quiz_id):
         st.session_state.start_time = time.time()
         st.session_state.name = name
         st.session_state.regno = regno
-        st.experimental_rerun()
+        st.rerun()
 
     # If quiz started
     if st.session_state.current_quiz == quiz_id:
         start = st.session_state.start_time
-        remaining = quiz["time_limit"]*60 - (time.time() - start)
+        remaining = quiz["time_limit"] * 60 - (time.time() - start)
 
         if remaining <= 0:
             st.error("⏳ Time is over!")
