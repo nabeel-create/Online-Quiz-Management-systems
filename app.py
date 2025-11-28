@@ -104,7 +104,7 @@ def admin_login():
 # ---------------------------
 def admin_panel():
     st.title("👑 Admin Dashboard")
-    tab1, tab2, tab3, tab4 = st.tabs(["➕ Create Quiz", "📄 Quiz List", "📊 Student Results", "📈 Analytics"])
+    tab1, tab2, tab3, tab4 = st.tabs(["➕ Create Quiz", "📄 Quiz List", "📊 Live Student Results", "📈 Analytics"])
 
     with tab1:
         st.subheader("Create New Quiz")
@@ -146,12 +146,20 @@ def admin_panel():
                 st.markdown("</div>", unsafe_allow_html=True)
 
     with tab3:
-        st.subheader("Student Submissions")
-        if results:
-            df = pd.DataFrame.from_dict(results, orient="index")
-            st.dataframe(df)
-            st.download_button("📥 Download CSV", df.to_csv(index=False).encode('utf-8'), "quiz_results.csv")
-        else: st.info("No submissions yet.")
+        st.subheader("Live Student Submissions")
+        refresh_interval = 5  # seconds
+        live_placeholder = st.empty()
+        while True:
+            if results:
+                df = pd.DataFrame.from_dict(results, orient="index")
+                live_placeholder.dataframe(df)
+                avg_score = df['score'].mean()
+                st.metric("Average Score", f"{avg_score:.2f}")
+                st.metric("Total Submissions", len(df))
+            else:
+                live_placeholder.info("No submissions yet.")
+            time.sleep(refresh_interval)
+            st.experimental_rerun()
 
     with tab4:
         st.subheader("Quiz Analytics")
@@ -205,14 +213,12 @@ def student_quiz_page(quiz_id):
             st.session_state.quiz_started = True
             st.rerun()
     else:
-        # Timer
         start = st.session_state.start_time
         total_seconds = quiz["time_limit"]*60
         remaining = total_seconds - (time.time()-start)
         if remaining<=0: st.error("⏳ Time Over!"); return
         circular_timer(remaining,total_seconds)
 
-        # Swipeable question
         idx = st.session_state.question_index
         q = quiz["questions"][idx]
         st.write(f"Q{idx+1}/{len(quiz['questions'])}: {q['question']}")
