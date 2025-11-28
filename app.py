@@ -4,7 +4,7 @@ from datetime import datetime
 import pandas as pd
 import altair as alt
 from streamlit_autorefresh import st_autorefresh
-import random
+from openrouter import OpenRouter
 
 # ---------------------------
 # Ensure data folder exists
@@ -34,7 +34,7 @@ results = load_json(RESULT_FILE)
 # ---------------------------
 # Streamlit Page Settings
 # ---------------------------
-st.set_page_config(page_title="Online Quiz System", layout="wide")
+st.set_page_config(page_title="AI Quiz System", layout="wide")
 
 # ---------------------------
 # CSS Styling
@@ -69,7 +69,7 @@ if "quiz_started" not in st.session_state: st.session_state.quiz_started = False
 if "answers" not in st.session_state: st.session_state.answers = {}
 
 # ---------------------------
-# BASE URL (Secrets + fallback)
+# BASE URL
 # ---------------------------
 def get_base_url():
     try: return st.secrets["APP_URL"]
@@ -102,24 +102,57 @@ def admin_login():
             st.error("Invalid credentials!")
 
 # ---------------------------
-# Extract MCQs from Text
+# OpenRouter AI Setup
 # ---------------------------
-def extract_mcqs_from_text(text, n=5):
+api_key = st.secrets["openrouter"]["api_key"]
+openrouter = OpenRouter(api_key=api_key)
+
+# ---------------------------
+# AI MCQ Generation
+# ---------------------------
+def generate_mcqs_from_text_ai(text, num_questions=5):
     """
-    Simple MCQ extraction from text.
-    For real implementation, you can integrate GPT or NLP to generate questions.
-    Currently, it takes sentences and creates placeholder options.
+    Uses OpenRouter GPT to generate MCQs with options, correct answer, and description.
     """
-    lines = [line.strip() for line in text.split(".") if line.strip()]
+    prompt = f"""
+    Extract {num_questions} multiple-choice questions (MCQs) from the following text. 
+    Provide each question in JSON format like this:
+    {{
+      "question": "...",
+      "options": ["...","...","...","..."],
+      "answer": "...",
+      "description": "..."
+    }}
+    Text:
+    {text}
+    """
     mcqs = []
-    for i in range(min(n, len(lines))):
-        question = lines[i] + "?"
-        # Simple placeholder options
-        options = ["Option A", "Option B", "Option C", "Option D"]
-        # Randomly pick one as correct answer (can improve later)
-        answer = random.choice(options)
-        description = lines[i]
-        mcqs.append({"question": question, "options": options, "answer": answer, "description": description})
+    try:
+        stream = openrouter.chat.send(
+            model="google/gemma-3n-e2b-it:free",
+            messages=[{"role": "user", "content": prompt}],
+            stream=True
+        )
+
+        buffer = ""
+        for chunk in stream:
+            delta = chunk.choices[0].delta.get("content")
+            if delta:
+                buffer += delta
+                st.code(buffer, language="json")  # live streaming preview
+
+        # Try parsing JSON after streaming completes
+        import re
+        json_texts = re.findall(r'\{.*?\}', buffer, re.DOTALL)
+        for jt in json_texts:
+            try:
+                mcq = json.loads(jt)
+                mcqs.append(mcq)
+            except:
+                continue
+
+    except Exception as e:
+        st.error(f"Error generating MCQs: {e}")
     return mcqs
 
 # ---------------------------
@@ -247,19 +280,20 @@ def admin_panel():
         else: st.info("No quizzes yet.")
 
         st.write("---")
-        st.subheader("Auto-generate MCQs from Description/Text")
+        st.subheader("Generate MCQs from Text (AI)")
         if quizzes:
-            selected = st.selectbox("Select Quiz to Add Generated MCQs", list(quizzes.keys()), format_func=lambda x: quizzes[x]["name"])
+            selected = st.selectbox("Select Quiz for AI-generated MCQs", list(quizzes.keys()), format_func=lambda x: quizzes[x]["name"])
             text_input = st.text_area("Paste Description/Text Here")
-            num_questions = st.number_input("Number of MCQs to generate", 1, 20, 5)
-            if st.button("Extract MCQs from Text"):
+            num_questions = st.number_input("Number of MCQs to generate", 1, 10, 5)
+            if st.button("Generate MCQs with AI"):
                 if not text_input.strip():
                     st.error("Please provide text!")
                 else:
-                    new_qs = extract_mcqs_from_text(text_input, num_questions)
-                    quizzes[selected]["questions"].extend(new_qs)
-                    save_json(QUIZ_FILE, quizzes)
-                    st.success(f"{len(new_qs)} MCQs added to {quizzes[selected]['name']}!")
+                    new_qs = generate_mcqs_from_text_ai(text_input, num_questions)
+                    if new_qs:
+                        quizzes[selected]["questions"].extend(new_qs)
+                        save_json(QUIZ_FILE, quizzes)
+                        st.success(f"{len(new_qs)} AI-generated MCQs added to {quizzes[selected]['name']}!")
 
     with tab2:
         st.subheader("All Quizzes")
@@ -274,7 +308,7 @@ def admin_panel():
 
     with tab3:
         st.subheader("Live Student Submissions")
-        st_autorefresh(interval=5000, key="live_refresh")  # refresh every 5 sec
+        st_autorefresh(interval=5000, key="live_refresh")
         if results:
             df = pd.DataFrame.from_dict(results, orient="index")
             st.dataframe(df)
@@ -292,7 +326,8 @@ def admin_panel():
                 x="quiz_id:N", y="score:Q", color="quiz_id:N", tooltip=["name","score"]
             )
             st.altair_chart(chart, use_container_width=True)
-        else: st.info("No data yet.")
+        else:
+            st.info("No data yet.")
 
 # ---------------------------
 # Router
