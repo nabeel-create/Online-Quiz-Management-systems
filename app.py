@@ -123,6 +123,94 @@ def extract_mcqs_from_text(text, n=5):
     return mcqs
 
 # ---------------------------
+# Circular Timer
+# ---------------------------
+def circular_timer(seconds_left, total_seconds):
+    pct = seconds_left/total_seconds
+    radius = 80
+    color = "#4CAF50" if pct>0.2 else "#FF0000"
+    svg = f"""
+    <svg width="200" height="200">
+      <circle cx="100" cy="100" r="{radius}" fill="none" stroke="#eee" stroke-width="15"/>
+      <circle cx="100" cy="100" r="{radius}" fill="none" stroke="{color}" stroke-width="15"
+        stroke-dasharray="{2*math.pi*radius*pct}, {2*math.pi*radius}"/>
+      <text x="100" y="110" text-anchor="middle" font-size="24" fill="black">{int(seconds_left)}s</text>
+    </svg>
+    """
+    st.markdown(svg, unsafe_allow_html=True)
+
+# ---------------------------
+# Student Quiz Page
+# ---------------------------
+def student_quiz_page(quiz_id):
+    if quiz_id not in quizzes:
+        st.error("Invalid Quiz!")
+        return
+    quiz = quizzes[quiz_id]
+    st.title(f"📝 {quiz['name']}")
+    st.info(f"Time Limit: {quiz['time_limit']} min")
+
+    if not st.session_state.quiz_started:
+        name = st.text_input("Your Name")
+        regno = st.text_input("Registration Number")
+        if st.button("Start Quiz"):
+            if not name or not regno: st.error("Enter details!"); return
+            st.session_state.current_quiz = quiz_id
+            st.session_state.start_time = time.time()
+            st.session_state.name = name
+            st.session_state.regno = regno
+            st.session_state.question_index = 0
+            st.session_state.answers = {}
+            st.session_state.quiz_started = True
+            st.rerun()
+    else:
+        start = st.session_state.start_time
+        total_seconds = quiz["time_limit"]*60
+        remaining = total_seconds - (time.time()-start)
+        if remaining<=0: 
+            st.error("⏳ Time Over!"); 
+            st.session_state.quiz_started=False
+            return
+        
+        circular_timer(remaining,total_seconds)
+
+        idx = st.session_state.question_index
+        q = quiz["questions"][idx]
+        st.write(f"Q{idx+1}/{len(quiz['questions'])}: {q['question']}")
+        choice = st.radio("", q["options"], key=f"q{idx}")
+        st.session_state.answers[idx] = choice
+
+        col1,col2 = st.columns(2)
+        with col1:
+            if idx>0 and st.button("⬅ Previous"): 
+                st.session_state.question_index-=1
+                st.rerun()
+        with col2:
+            if idx<len(quiz["questions"])-1 and st.button("Next ➡"): 
+                st.session_state.question_index+=1
+                st.rerun()
+            elif idx==len(quiz["questions"])-1 and st.button("Submit Quiz"):
+                # Calculate score
+                score=sum(1 for i,q in enumerate(quiz["questions"]) if st.session_state.answers.get(i)==q["answer"])
+                rid=str(uuid.uuid4())
+                results[rid]={"name":st.session_state.name,"regno":st.session_state.regno,"quiz_id":quiz_id,"score":score,"date":str(datetime.now())}
+                save_json(RESULT_FILE,results)
+                
+                st.success(f"🎉 Quiz Submitted! Score: {score}/{len(quiz['questions'])}")
+                
+                # Show descriptions/explanations
+                st.write("### ✅ Answer Explanations:")
+                for i, q in enumerate(quiz["questions"]):
+                    st.write(f"**Q{i+1}: {q['question']}**")
+                    st.write(f"Your Answer: {st.session_state.answers.get(i,'Not Answered')}")
+                    st.write(f"Correct Answer: {q['answer']}")
+                    st.write(f"Explanation: {q.get('description','No explanation provided')}")
+                    st.write("---")
+                
+                st.balloons()
+                st.session_state.quiz_started=False
+
+# ---------------------------
 # Admin Dashboard
 # ---------------------------
 def admin_panel():
@@ -213,7 +301,7 @@ params = st.experimental_get_query_params()
 quiz_id = params.get("quiz",[None])[0]
 
 if quiz_id: 
-    st.warning("Student Quiz Page not included in this snippet")  # Keep your existing student quiz page
+    student_quiz_page(quiz_id)
 elif not st.session_state.logged_in: 
     admin_login()
 else: 
