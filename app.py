@@ -119,7 +119,7 @@ if OPENROUTER_AVAILABLE:
         OPENROUTER_AVAILABLE = False
 
 # ---------------------------
-# AI MCQ Generation with Safe Streaming
+# AI MCQ Generation (Reliable JSON)
 # ---------------------------
 def generate_mcqs_from_text_ai(text, num_questions=5):
     mcqs = []
@@ -128,8 +128,8 @@ def generate_mcqs_from_text_ai(text, num_questions=5):
         return mcqs
 
     prompt = f"""
-    Extract {num_questions} multiple-choice questions (MCQs) from the following text. 
-    Provide each question in JSON format like this:
+    Extract {num_questions} multiple-choice questions (MCQs) from the following text.
+    Return the result as a JSON array, each element like:
     {{
       "question": "...",
       "options": ["...","...","...","..."],
@@ -139,37 +139,18 @@ def generate_mcqs_from_text_ai(text, num_questions=5):
     Text:
     {text}
     """
-    buffer = ""
-    output_container = st.empty()
     try:
-        stream = openrouter.chat.send(
+        response = openrouter.chat.completions.create(
             model="google/gemma-3n-e2b-it:free",
-            messages=[{"role": "user", "content": prompt}],
-            stream=True
+            messages=[{"role":"user","content":prompt}],
+            temperature=0.3,
+            max_tokens=1000
         )
-
-        for chunk in stream:
-            if hasattr(chunk, "choices") and len(chunk.choices) > 0:
-                choice = chunk.choices[0]
-                delta = getattr(choice, "delta", None)
-                if delta and isinstance(delta, dict):
-                    content = delta.get("content")
-                    if content:
-                        buffer += content
-                        output_container.code(buffer, language="json")
-
-        # Parse JSON after streaming completes
-        import re
-        json_texts = re.findall(r'\{.*?\}', buffer, re.DOTALL)
-        for jt in json_texts:
-            try:
-                mcq = json.loads(jt)
-                mcqs.append(mcq)
-            except:
-                continue
-
+        ai_text = response.choices[0].message["content"]
+        mcqs = json.loads(ai_text)
     except Exception as e:
         st.error(f"Error generating MCQs: {e}")
+        st.info("AI may not have returned valid JSON. Try shorter text or fewer questions.")
     return mcqs
 
 # ---------------------------
@@ -309,9 +290,9 @@ def admin_panel():
                     if new_qs:
                         quizzes[selected]["questions"].extend(new_qs)
                         save_json(QUIZ_FILE, quizzes)
-                        st.success(f"{len(new_qs)} AI-generated MCQs added to {quizzes[selected]['name']}!")
+                        st.success(f"{len(new_qs)} AI-generated MCQs added!")
                     else:
-                        st.warning("No MCQs generated. Try shorter text or fewer questions.")
+                        st.warning("No MCQs generated. Check AI output or shorten text.")
         else:
             st.info("OpenRouter not available. Install package and add API key to secrets for AI MCQs.")
 
