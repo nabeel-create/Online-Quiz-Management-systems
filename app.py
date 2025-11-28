@@ -3,6 +3,7 @@ import json, uuid, os, time, math
 from datetime import datetime
 import pandas as pd
 import altair as alt
+from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------
 # Ensure data folder exists
@@ -147,19 +148,15 @@ def admin_panel():
 
     with tab3:
         st.subheader("Live Student Submissions")
-        refresh_interval = 5  # seconds
-        live_placeholder = st.empty()
-        while True:
-            if results:
-                df = pd.DataFrame.from_dict(results, orient="index")
-                live_placeholder.dataframe(df)
-                avg_score = df['score'].mean()
-                st.metric("Average Score", f"{avg_score:.2f}")
-                st.metric("Total Submissions", len(df))
-            else:
-                live_placeholder.info("No submissions yet.")
-            time.sleep(refresh_interval)
-            st.experimental_rerun()
+        st_autorefresh(interval=5000, key="live_refresh")  # refresh every 5 sec
+        if results:
+            df = pd.DataFrame.from_dict(results, orient="index")
+            st.dataframe(df)
+            avg_score = df['score'].mean()
+            st.metric("Average Score", f"{avg_score:.2f}")
+            st.metric("Total Submissions", len(df))
+        else:
+            st.info("No submissions yet.")
 
     with tab4:
         st.subheader("Quiz Analytics")
