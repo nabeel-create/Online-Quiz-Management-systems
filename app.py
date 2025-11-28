@@ -108,7 +108,7 @@ def admin_login():
             st.error("Invalid credentials!")
 
 # ---------------------------
-# OpenRouter AI Setup (if available)
+# OpenRouter AI Setup
 # ---------------------------
 if OPENROUTER_AVAILABLE:
     try:
@@ -119,7 +119,7 @@ if OPENROUTER_AVAILABLE:
         OPENROUTER_AVAILABLE = False
 
 # ---------------------------
-# AI MCQ Generation (Reliable JSON)
+# AI MCQ Generation (Fixed)
 # ---------------------------
 def generate_mcqs_from_text_ai(text, num_questions=5):
     mcqs = []
@@ -128,29 +128,30 @@ def generate_mcqs_from_text_ai(text, num_questions=5):
         return mcqs
 
     prompt = f"""
-    Extract {num_questions} multiple-choice questions (MCQs) from the following text.
-    Return the result as a JSON array, each element like:
-    {{
-      "question": "...",
-      "options": ["...","...","...","..."],
-      "answer": "...",
-      "description": "..."
-    }}
-    Text:
-    {text}
-    """
+Extract {num_questions} multiple-choice questions (MCQs) from the following text.
+Return the result as a single JSON array, each element like:
+{{
+  "question": "...",
+  "options": ["...","...","...","..."],
+  "answer": "...",
+  "description": "..."
+}}
+Text:
+{text}
+"""
+
     try:
-        response = openrouter.chat.completions.create(
+        response = openrouter.chat.send(
             model="google/gemma-3n-e2b-it:free",
-            messages=[{"role":"user","content":prompt}],
-            temperature=0.3,
-            max_tokens=1000
+            messages=[{"role": "user", "content": prompt}],
+            stream=False
         )
-        ai_text = response.choices[0].message["content"]
+        ai_text = response.choices[0].message.get("content", "")
         mcqs = json.loads(ai_text)
     except Exception as e:
         st.error(f"Error generating MCQs: {e}")
         st.info("AI may not have returned valid JSON. Try shorter text or fewer questions.")
+
     return mcqs
 
 # ---------------------------
