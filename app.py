@@ -1,229 +1,253 @@
 import streamlit as st
-import json
-import os
-import uuid
-from urllib.parse import unquote
-import time
+import json, uuid, os, time
+from datetime import datetime
 
-# -----------------------
-# File paths
-# -----------------------
-QUIZZES_FILE = "data/quizzes.json"
-RESULTS_FILE = "data/results.json"
-os.makedirs("data", exist_ok=True)
+# ---------------------------
+# Ensure data folder exists
+# ---------------------------
+if not os.path.exists("data"):
+    os.makedirs("data")
 
-# Initialize files if missing
-for file_path in [QUIZZES_FILE, RESULTS_FILE]:
-    if not os.path.exists(file_path):
-        with open(file_path, "w") as f:
-            json.dump({}, f)
+QUIZ_FILE = "data/quizzes.json"
+RESULT_FILE = "data/results.json"
 
-# -----------------------
-# Utility functions
-# -----------------------
-def load_json(file_path):
+def load_json(path):
+    if not os.path.exists(path):
+        return {}
     try:
-        with open(file_path, "r") as f:
+        with open(path, "r") as f:
             return json.load(f)
-    except json.JSONDecodeError:
+    except:
         return {}
 
-def save_json(file_path, data):
-    with open(file_path, "w") as f:
+def save_json(path, data):
+    with open(path, "w") as f:
         json.dump(data, f, indent=4)
 
-def generate_quiz_link(quiz_id):
-    # Replace with your deployed Streamlit URL
-    return f"http://localhost:8501/?quiz={quiz_id}"
+quizzes = load_json(QUIZ_FILE)
+results = load_json(RESULT_FILE)
 
-# -----------------------
-# Page Setup
-# -----------------------
-st.set_page_config(page_title="Online Quiz System", page_icon="🎓", layout="wide")
+# ---------------------------
+# Streamlit Page Settings
+# ---------------------------
+st.set_page_config(page_title="Online Quiz Management System", layout="wide")
+
 st.markdown("""
 <style>
-h1 { text-align:center; color:#4B0082; }
-body { background-color:#f0f2f6; }
 .quiz-card {
-    background-color:#4B0082; 
-    color:white; 
-    padding:20px; 
-    margin:15px; 
-    border-radius:12px; 
-    text-align:center; 
-    font-size:20px; 
-    font-weight:bold;
-    transition: transform 0.2s;
+    padding: 20px;
+    border-radius: 12px;
+    background: #f8f9fa;
+    border: 2px solid #eee;
+    transition: 0.3s;
 }
-.quiz-card:hover { transform: scale(1.05); cursor:pointer; }
+.quiz-card:hover {
+    background: #f0f0f0;
+    border-color: #999;
+}
 </style>
 """, unsafe_allow_html=True)
-st.markdown("<h1>Online Quiz System</h1>", unsafe_allow_html=True)
-st.markdown("---")
 
-# -----------------------
-# Session State
-# -----------------------
-if "teacher_logged_in" not in st.session_state:
-    st.session_state.teacher_logged_in = False
-if "student_name" not in st.session_state:
-    st.session_state.student_name = ""
-if "reg_number" not in st.session_state:
-    st.session_state.reg_number = ""
-if "current_quiz_id" not in st.session_state:
-    st.session_state.current_quiz_id = None
-if "start_time" not in st.session_state:
-    st.session_state.start_time = None
+# ---------------------------
+# SESSION STATE
+# ---------------------------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-# -----------------------
-# Detect quiz link in URL
-# -----------------------
-query_params = st.experimental_get_query_params()
-if "quiz" in query_params:
-    st.session_state.current_quiz_id = unquote(query_params["quiz"][0])
+if "current_quiz" not in st.session_state:
+    st.session_state.current_quiz = None
 
-# -----------------------
-# Teacher/Admin Login
-# -----------------------
-if not st.session_state.teacher_logged_in and not st.session_state.current_quiz_id:
-    st.subheader("Teacher/Admin Login")
+
+# --------------------------------------------
+# ADMIN LOGIN SCREEN
+# --------------------------------------------
+def admin_login():
+    st.title("🔐 Admin Login")
+    
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
+
     if st.button("Login"):
         if username == "admin" and password == "admin123":
-            st.session_state.teacher_logged_in = True
-            st.success("Logged in as Admin")
+            st.session_state.logged_in = True
+            st.success("Login Successful!")
+            st.experimental_rerun()
         else:
-            st.error("Invalid credentials")
+            st.error("Invalid admin credentials.")
 
-# -----------------------
-# Teacher/Admin Dashboard
-# -----------------------
-if st.session_state.teacher_logged_in:
-    st.header("Admin Dashboard")
 
-    # --- Create New Quiz ---
-    with st.expander("📌 Create New Quiz"):
+# --------------------------------------------
+# ADMIN PANEL
+# --------------------------------------------
+def admin_panel():
+    st.title("👑 Admin Dashboard")
+
+    tab1, tab2, tab3 = st.tabs(["➕ Create Quiz", "📄 Quiz List", "📊 Student Submissions"])
+
+    # ------------------------------
+    # ADD QUIZ
+    # ------------------------------
+    with tab1:
+        st.subheader("Create a New Quiz")
+
         quiz_name = st.text_input("Quiz Name")
-        question = st.text_input("Question")
-        options = st.text_area("Options (comma separated)")
-        answer = st.text_input("Answer")
-        time_limit = st.number_input("Time Limit (minutes)", min_value=1, max_value=180, value=5)
-        if st.button("Add Question"):
-            if not all([quiz_name, question, options, answer]):
-                st.error("Fill all fields!")
-            else:
-                quizzes = load_json(QUIZZES_FILE)
-                quiz_id = str(uuid.uuid4())
-                quizzes[quiz_id] = {"name": quiz_name, "questions": [{
-                    "question": question,
-                    "options": [opt.strip() for opt in options.split(",")],
-                    "answer": answer.strip()
-                }], "time_limit": time_limit}
-                save_json(QUIZZES_FILE, quizzes)
-                link = generate_quiz_link(quiz_id)
-                st.success("Quiz created successfully!")
-                st.markdown(f"Share this link with students: [Open Quiz]({link})")
+        time_limit = st.number_input("Quiz Time Limit (Minutes)", min_value=1, max_value=60, value=5)
 
-    # --- View Existing Quizzes ---
-    st.subheader("All Quizzes")
-    quizzes = load_json(QUIZZES_FILE)
-    if quizzes:
-        for quiz_id, quiz in quizzes.items():
-            if isinstance(quiz, dict) and 'name' in quiz:
-                time_limit = quiz.get('time_limit', 5)
-                st.markdown(f"**{quiz['name']}** (Time: {time_limit} min)")
-                link = generate_quiz_link(quiz_id)
-                st.markdown(f"Link: [Open Quiz]({link})")
-                results = load_json(RESULTS_FILE).get(quiz_id, [])
-                if results:
-                    with st.expander("View Results"):
-                        for res in results:
-                            st.write(f"{res['name']} ({res['reg_number']}): {res['score']}/{len(quiz['questions'])}")
-                st.markdown("---")
-            else:
-                st.error("Invalid quiz data detected.")
+        if st.button("Create Quiz"):
+            quiz_id = str(uuid.uuid4())
+            quizzes[quiz_id] = {
+                "name": quiz_name,
+                "time_limit": time_limit,
+                "questions": []
+            }
+            save_json(QUIZ_FILE, quizzes)
 
-# -----------------------
-# Student Quiz Panel
-# -----------------------
-if st.session_state.current_quiz_id is None:
-    st.subheader("Available Quizzes")
-    quizzes = load_json(QUIZZES_FILE)
-    if quizzes:
-        cols = st.columns(3)
-        for i, (quiz_id, quiz) in enumerate(quizzes.items()):
-            if isinstance(quiz, dict) and 'name' in quiz:
-                with cols[i % 3]:
-                    if st.button(quiz["name"], key=quiz_id):
-                        st.session_state.current_quiz_id = quiz_id
-    else:
-        st.info("No quizzes available yet.")
+            quiz_link = f"{st.secrets['APP_URL']}?quiz={quiz_id}"
 
-# -----------------------
-# Take Quiz
-# -----------------------
-if st.session_state.current_quiz_id:
-    quizzes = load_json(QUIZZES_FILE)
-    quiz_id = st.session_state.current_quiz_id
-    quiz = quizzes.get(quiz_id, None)
-    if not quiz or not isinstance(quiz, dict):
-        st.error("Invalid or expired quiz link")
-    else:
-        st.subheader(f"Quiz: {quiz['name']} (Time: {quiz.get('time_limit',5)} min)")
+            st.success("Quiz created successfully!")
+            st.markdown(f"### 🔗 Share Quiz Link")
+            st.code(quiz_link)
 
-        # Check previous attempts
-        results = load_json(RESULTS_FILE).get(quiz_id, [])
-        if any(r["reg_number"] == st.session_state.reg_number for r in results):
-            st.warning("You have already attempted this quiz.")
-        else:
-            # Student info
-            if not st.session_state.student_name or not st.session_state.reg_number:
-                with st.form("student_form"):
-                    st.session_state.student_name = st.text_input("Full Name")
-                    st.session_state.reg_number = st.text_input("Registration Number")
-                    submitted = st.form_submit_button("Start Quiz")
-                    if submitted:
-                        if not st.session_state.student_name or not st.session_state.reg_number:
-                            st.error("Please fill all fields")
-                        else:
-                            st.session_state.start_time = time.time()
-                            st.success(f"Welcome {st.session_state.student_name}!")
-            else:
-                # Timer
-                time_limit_seconds = quiz.get("time_limit",5)*60
-                elapsed = time.time() - st.session_state.start_time
-                remaining = int(time_limit_seconds - elapsed)
-                auto_submit = False
-                if remaining <=0:
-                    st.warning("Time is up! Submitting your quiz...")
-                    remaining = 0
-                    auto_submit = True
-                else:
-                    st.info(f"Time Remaining: {remaining//60} min {remaining%60} sec")
+            st.info("Give this link to students.")
 
-                # Quiz questions
-                user_answers = {}
-                for idx, q in enumerate(quiz["questions"]):
-                    st.markdown(f"**Q{idx+1}: {q['question']}**")
-                    ans = st.radio("Choose an answer:", q["options"], key=f"{quiz_id}_{idx}")
-                    user_answers[q['question']] = ans
+        st.write("---")
 
-                if st.button("Submit Quiz") or auto_submit:
-                    score = sum([1 for q in quiz["questions"] if user_answers[q['question']] == q['answer']])
-                    results = load_json(RESULTS_FILE)
-                    quiz_results = results.get(quiz_id, [])
-                    quiz_results.append({
-                        "name": st.session_state.student_name,
-                        "reg_number": st.session_state.reg_number,
-                        "score": score,
-                        "answers": user_answers
+        # Add questions to existing quiz
+        st.subheader("Add Questions to Quiz")
+        quiz_ids = list(quizzes.keys())
+        if quiz_ids:
+            selected_quiz = st.selectbox("Select Quiz", quiz_ids, format_func=lambda x: quizzes[x]["name"])
+
+            q = st.text_input("Question")
+            opts = st.text_input("Options (comma separated)")
+            ans = st.text_input("Correct Answer")
+
+            if st.button("Add Question"):
+                if q and opts and ans:
+                    quizzes[selected_quiz]["questions"].append({
+                        "question": q,
+                        "options": [o.strip() for o in opts.split(",")],
+                        "answer": ans.strip()
                     })
-                    results[quiz_id] = quiz_results
-                    save_json(RESULTS_FILE, results)
-                    st.success(f"🎉 {st.session_state.student_name}, You scored {score}/{len(quiz['questions'])}")
-                    st.balloons()
-                    st.session_state.student_name = ""
-                    st.session_state.reg_number = ""
-                    st.session_state.current_quiz_id = None
-                    st.session_state.start_time = None
+                    save_json(QUIZ_FILE, quizzes)
+                    st.success("Question Added!")
+        else:
+            st.warning("Create a quiz first.")
+
+    # ------------------------------
+    # VIEW QUIZZES
+    # ------------------------------
+    with tab2:
+        st.subheader("All Quizzes")
+
+        for qid, qdata in quizzes.items():
+            with st.container():
+                st.markdown(f"<div class='quiz-card'>", unsafe_allow_html=True)
+                st.write(f"### {qdata['name']}")
+                st.write(f"Time Limit: **{qdata['time_limit']} minutes**")
+                st.write(f"Total Questions: **{len(qdata['questions'])}**")
+                
+                quiz_link = f"{st.secrets['APP_URL']}?quiz={qid}"
+                st.code(quiz_link, language="text")
+                
+                st.markdown("</div>", unsafe_allow_html=True)
+                st.write("")
+
+    # ------------------------------
+    # VIEW STUDENT RESULTS
+    # ------------------------------
+    with tab3:
+        st.subheader("All Student Submissions")
+
+        if len(results) == 0:
+            st.info("No submissions yet.")
+        else:
+            for rid, rdata in results.items():
+                st.markdown(f"""
+                ### 🧑 {rdata['name']}  
+                **Reg #:** {rdata['regno']}  
+                **Quiz:** {quizzes[rdata['quiz_id']]['name']}  
+                **Score:** {rdata['score']}  
+                **Date:** {rdata['date']}  
+                """)
+                st.write("---")
+
+
+# --------------------------------------------
+# STUDENT QUIZ SCREEN
+# --------------------------------------------
+def student_quiz_page(quiz_id):
+    if quiz_id not in quizzes:
+        st.error("Invalid quiz link!")
+        return
+
+    quiz = quizzes[quiz_id]
+
+    st.title(f"📝 {quiz['name']}")
+    st.info(f"Time Limit: {quiz['time_limit']} Minutes")
+
+    # Student info
+    name = st.text_input("Enter Your Name")
+    regno = st.text_input("Enter Registration Number")
+
+    if st.button("Start Quiz"):
+        if not name or not regno:
+            st.error("Enter your details first!")
+            return
+
+        st.session_state.current_quiz = quiz_id
+        st.session_state.start_time = time.time()
+        st.session_state.name = name
+        st.session_state.regno = regno
+        st.experimental_rerun()
+
+    # If quiz started
+    if st.session_state.current_quiz == quiz_id:
+        start = st.session_state.start_time
+        remaining = quiz["time_limit"]*60 - (time.time() - start)
+
+        if remaining <= 0:
+            st.error("⏳ Time is over!")
+            return
+
+        st.warning(f"⏰ Time Left: {int(remaining)} seconds")
+
+        answers = {}
+
+        for i, q in enumerate(quiz["questions"]):
+            st.write(f"### Q{i+1}. {q['question']}")
+            answers[i] = st.radio("", q["options"], key=f"q{i}")
+
+        if st.button("Submit Quiz"):
+            score = 0
+            for i, q in enumerate(quiz["questions"]):
+                if answers[i] == q["answer"]:
+                    score += 1
+
+            rid = str(uuid.uuid4())
+            results[rid] = {
+                "name": st.session_state.name,
+                "regno": st.session_state.regno,
+                "quiz_id": quiz_id,
+                "score": score,
+                "date": str(datetime.now())
+            }
+            save_json(RESULT_FILE, results)
+
+            st.success(f"🎉 Quiz Submitted! Your Score: {score}")
+            st.balloons()
+
+
+# --------------------------------------------
+# ROUTER
+# --------------------------------------------
+query_params = st.query_params
+
+if "quiz" in query_params:
+    student_quiz_page(query_params["quiz"])
+
+elif not st.session_state.logged_in:
+    admin_login()
+
+else:
+    admin_panel()
