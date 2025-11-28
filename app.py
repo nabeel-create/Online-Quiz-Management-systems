@@ -4,7 +4,13 @@ from datetime import datetime
 import pandas as pd
 import altair as alt
 from streamlit_autorefresh import st_autorefresh
-from openrouter import OpenRouter
+
+# Safe import OpenRouter
+try:
+    from openrouter import OpenRouter
+    OPENROUTER_AVAILABLE = True
+except ModuleNotFoundError:
+    OPENROUTER_AVAILABLE = False
 
 # ---------------------------
 # Ensure data folder exists
@@ -102,18 +108,25 @@ def admin_login():
             st.error("Invalid credentials!")
 
 # ---------------------------
-# OpenRouter AI Setup
+# OpenRouter AI Setup (if available)
 # ---------------------------
-api_key = st.secrets["openrouter"]["api_key"]
-openrouter = OpenRouter(api_key=api_key)
+if OPENROUTER_AVAILABLE:
+    try:
+        api_key = st.secrets["openrouter"]["api_key"]
+        openrouter = OpenRouter(api_key=api_key)
+    except:
+        st.warning("OpenRouter API key not found in secrets. AI MCQ generation disabled.")
+        OPENROUTER_AVAILABLE = False
 
 # ---------------------------
-# AI MCQ Generation
+# AI MCQ Generation with Safe Streaming
 # ---------------------------
 def generate_mcqs_from_text_ai(text, num_questions=5):
-    """
-    Uses OpenRouter GPT to generate MCQs with options, correct answer, and description.
-    """
+    mcqs = []
+    if not OPENROUTER_AVAILABLE:
+        st.error("OpenRouter not available. Cannot generate MCQs.")
+        return mcqs
+
     prompt = f"""
     Extract {num_questions} multiple-choice questions (MCQs) from the following text. 
     Provide each question in JSON format like this:
@@ -126,7 +139,7 @@ def generate_mcqs_from_text_ai(text, num_questions=5):
     Text:
     {text}
     """
-    mcqs = []
+    buffer = ""
     try:
         stream = openrouter.chat.send(
             model="google/gemma-3n-e2b-it:free",
@@ -134,14 +147,18 @@ def generate_mcqs_from_text_ai(text, num_questions=5):
             stream=True
         )
 
-        buffer = ""
         for chunk in stream:
-            delta = chunk.choices[0].delta.get("content")
-            if delta:
-                buffer += delta
-                st.code(buffer, language="json")  # live streaming preview
+            # Safe extraction
+            if hasattr(chunk, "choices") and len(chunk.choices) > 0:
+                choice = chunk.choices[0]
+                delta = getattr(choice, "delta", None)
+                if delta and isinstance(delta, dict):
+                    content = delta.get("content")
+                    if content:
+                        buffer += content
+                        st.code(buffer, language="json")
 
-        # Try parsing JSON after streaming completes
+        # Parse JSON after streaming completes
         import re
         json_texts = re.findall(r'\{.*?\}', buffer, re.DOTALL)
         for jt in json_texts:
@@ -201,7 +218,7 @@ def student_quiz_page(quiz_id):
         total_seconds = quiz["time_limit"]*60
         remaining = total_seconds - (time.time()-start)
         if remaining<=0: 
-            st.error("⏳ Time Over!"); 
+            st.error("⏳ Time Over!") 
             st.session_state.quiz_started=False
             return
         
@@ -223,7 +240,6 @@ def student_quiz_page(quiz_id):
                 st.session_state.question_index+=1
                 st.rerun()
             elif idx==len(quiz["questions"])-1 and st.button("Submit Quiz"):
-                # Calculate score
                 score=sum(1 for i,q in enumerate(quiz["questions"]) if st.session_state.answers.get(i)==q["answer"])
                 rid=str(uuid.uuid4())
                 results[rid]={"name":st.session_state.name,"regno":st.session_state.regno,"quiz_id":quiz_id,"score":score,"date":str(datetime.now())}
@@ -231,7 +247,6 @@ def student_quiz_page(quiz_id):
                 
                 st.success(f"🎉 Quiz Submitted! Score: {score}/{len(quiz['questions'])}")
                 
-                # Show descriptions/explanations
                 st.write("### ✅ Answer Explanations:")
                 for i, q in enumerate(quiz["questions"]):
                     st.write(f"**Q{i+1}: {q['question']}**")
@@ -281,7 +296,7 @@ def admin_panel():
 
         st.write("---")
         st.subheader("Generate MCQs from Text (AI)")
-        if quizzes:
+        if OPENROUTER_AVAILABLE:
             selected = st.selectbox("Select Quiz for AI-generated MCQs", list(quizzes.keys()), format_func=lambda x: quizzes[x]["name"])
             text_input = st.text_area("Paste Description/Text Here")
             num_questions = st.number_input("Number of MCQs to generate", 1, 10, 5)
@@ -294,6 +309,8 @@ def admin_panel():
                         quizzes[selected]["questions"].extend(new_qs)
                         save_json(QUIZ_FILE, quizzes)
                         st.success(f"{len(new_qs)} AI-generated MCQs added to {quizzes[selected]['name']}!")
+        else:
+            st.info("OpenRouter not available. Install package and add API key to secrets for AI MCQs.")
 
     with tab2:
         st.subheader("All Quizzes")
