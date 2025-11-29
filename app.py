@@ -136,7 +136,11 @@ Text:
             messages=[{"role": "user", "content": prompt}],
             stream=False
         )
-        ai_text = response.choices[0].message.get("content","")
+        ai_text = ""
+        if hasattr(response.choices[0], "message"):
+            ai_text = response.choices[0].message.get("content","")
+        elif hasattr(response.choices[0], "text"):
+            ai_text = response.choices[0].text
         mcqs = json.loads(ai_text)
     except Exception as e:
         st.error(f"Error generating MCQs: {e}")
@@ -351,9 +355,20 @@ def admin_panel():
             question = st.text_input("Ask AI Tutor")
             if st.button("Get Answer"):
                 if question.strip():
-                    response = openrouter.chat.send(model="mistralai/mistral-7b-instruct:free",
-                                                    messages=[{"role":"user","content":question}])
-                    st.write(response.choices[0].message["content"])
+                    try:
+                        response = openrouter.chat.send(
+                            model="mistralai/mistral-7b-instruct:free",
+                            messages=[{"role":"user","content":question}]
+                        )
+                        # Safe extraction of content
+                        content = ""
+                        if hasattr(response.choices[0], "message"):
+                            content = response.choices[0].message.get("content", "")
+                        elif hasattr(response.choices[0], "text"):
+                            content = response.choices[0].text
+                        st.write(content if content else "No response received.")
+                    except Exception as e:
+                        st.error(f"Error getting AI response: {e}")
         else:
             st.info("OpenRouter not available. Add API key in secrets for AI features.")
 
