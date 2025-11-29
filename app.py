@@ -403,4 +403,31 @@ def login_page():
     role = st.selectbox("Role", ["Student","Admin"])
     if st.button("Login"):
         if role=="Admin":
-            if username=="admin
+            if username=="admin" and password=="admin123":
+                st.session_state.logged_in=True
+                st.session_state.username=username
+                st.session_state.role="Admin"
+                st.experimental_rerun()
+            else: st.error("Invalid admin credentials")
+        else:
+            users = load_users()
+            if username not in users:
+                users[username] = {"password":password}
+                save_users(users)
+            elif users[username]["password"] != password:
+                st.error("Invalid password")
+                return
+            st.session_state.logged_in=True
+            st.session_state.username=username
+            st.session_state.role="Student"
+            st.experimental_rerun()
+
+# ============================================================
+#                     ROUTER
+# ============================================================
+if not st.session_state.logged_in:
+    login_page()
+elif st.session_state.role=="Admin":
+    admin_panel()
+else:
+    student_panel()
