@@ -4,3 +4,4 @@ altair
 fpdf2
 PyPDF2
 openrouter
+google-genai
