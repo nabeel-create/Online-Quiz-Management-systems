@@ -7,13 +7,15 @@ from fpdf import FPDF
 from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------
-# Optional AI (OpenRouter)
+# Google Gemini
 # ---------------------------
 try:
-    from openrouter import OpenRouter
-    OPENROUTER_AVAILABLE = True
-except ModuleNotFoundError:
-    OPENROUTER_AVAILABLE = False
+    from google import genai
+    client = genai.Client()  # Make sure GOOGLE_API_KEY is set in env
+    GEMINI_AVAILABLE = True
+except Exception as e:
+    GEMINI_AVAILABLE = False
+    print("Google Gemini not available:", e)
 
 # ---------------------------
 # Ensure data folder exists
@@ -104,46 +106,27 @@ def admin_login():
             st.error("Invalid credentials!")
 
 # ---------------------------
-# OpenRouter AI Setup
-# ---------------------------
-if OPENROUTER_AVAILABLE:
-    try:
-        api_key = st.secrets["openrouter"]["api_key"]
-        openrouter = OpenRouter(api_key=api_key)
-    except:
-        st.warning("OpenRouter API key not found in secrets. AI MCQ generation disabled.")
-        OPENROUTER_AVAILABLE = False
-
-# ---------------------------
-# AI MCQ Generation
+# AI MCQ Generation using Gemini
 # ---------------------------
 def generate_mcqs_from_text_ai(text, num_questions=5):
     mcqs = []
-    if not OPENROUTER_AVAILABLE:
-        st.error("OpenRouter not available. Cannot generate MCQs.")
+    if not GEMINI_AVAILABLE:
+        st.error("Google Gemini not available. Cannot generate MCQs.")
         return mcqs
 
     prompt = f"""
 Extract {num_questions} multiple-choice questions (MCQs) from the following text.
-Return the result as a JSON array of objects with keys: question, type, options, answer, description.
+Return the result as a JSON array:
+{{ "question": "...", "type":"mcq", "options":["...","...","...","..."], "answer":"...", "description":"..." }}
 Text:
 {text}
 """
     try:
-        response = openrouter.chat.send(
-            model="mistralai/mistral-7b-instruct:free",
-            messages=[{"role": "user", "content": prompt}],
-            stream=False
+        response = client.models.generate_content(
+            model="gemini-3-pro-preview",
+            contents=prompt
         )
-        # Safely get the response content
-        if hasattr(response.choices[0], "message"):
-            ai_text = response.choices[0].message.get("content", "")
-        elif hasattr(response.choices[0], "text"):
-            ai_text = response.choices[0].text
-        else:
-            ai_text = ""
-
-        mcqs = json.loads(ai_text)
+        mcqs = json.loads(response.text)
     except Exception as e:
         st.error(f"Error generating MCQs: {e}")
         st.info("AI may not have returned valid JSON. Try shorter text or fewer questions.")
@@ -236,7 +219,7 @@ def student_quiz_page(quiz_id):
         elif q["type"]=="true_false":
             choice = st.radio("", ["True","False"], key=f"q{idx}")
             st.session_state.answers[idx] = choice
-        elif q["type"]=="fill_blank" or q["type"]=="short_answer":
+        elif q["type"] in ["fill_blank","short_answer"]:
             answer = st.text_input("Your Answer", key=f"q{idx}")
             st.session_state.answers[idx] = answer
 
@@ -335,9 +318,12 @@ def admin_panel():
 
     with tab5:
         st.subheader("AI MCQs / Chat Tutor")
-        if OPENROUTER_AVAILABLE:
+        
+        if GEMINI_AVAILABLE:
+            # AI-generated MCQs
             if quizzes:
-                selected = st.selectbox("Select Quiz for AI-generated MCQs", list(quizzes.keys()), format_func=lambda x: quizzes[x]["name"])
+                selected = st.selectbox("Select Quiz for AI-generated MCQs", list(quizzes.keys()), 
+                                        format_func=lambda x: quizzes[x]["name"])
                 text_input = st.text_area("Paste Text/Slides Here")
                 num_questions = st.number_input("Number of MCQs",1,10,5)
                 if st.button("Generate AI MCQs"):
@@ -347,26 +333,22 @@ def admin_panel():
                             quizzes[selected]["questions"].extend(new_qs)
                             save_json(QUIZ_FILE, quizzes)
                             st.success(f"{len(new_qs)} AI MCQs added!")
-                        else: st.warning("No MCQs generated.")
-
+                        else:
+                            st.warning("No MCQs generated.")
+            # AI Chat Tutor
             question = st.text_input("Ask AI Tutor")
             if st.button("Get Answer"):
                 if question.strip():
                     try:
-                        response = openrouter.chat.send(
-                            model="mistralai/mistral-7b-instruct:free",
-                            messages=[{"role":"user","content":question}]
+                        response = client.models.generate_content(
+                            model="gemini-3-pro-preview",
+                            contents=question
                         )
-                        content = ""
-                        if hasattr(response.choices[0], "message"):
-                            content = response.choices[0].message.get("content", "")
-                        elif hasattr(response.choices[0], "text"):
-                            content = response.choices[0].text
-                        st.write(content if content else "No response received.")
+                        st.write(response.text)
                     except Exception as e:
-                        st.error(f"Error getting AI response: {e}")
+                        st.error(f"Error getting answer: {e}")
         else:
-            st.info("OpenRouter not available. Add API key in secrets for AI features.")
+            st.info("Google Gemini not available. Set your API key or credentials.")
 
 # ---------------------------
 # Router
