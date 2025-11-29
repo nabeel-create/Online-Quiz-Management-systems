@@ -1,5 +1,6 @@
 streamlit
 pandas
 altair
-streamlit-autorefresh
+textract
 openrouter
+fpdf
