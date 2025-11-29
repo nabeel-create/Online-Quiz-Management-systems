@@ -125,8 +125,7 @@ def generate_mcqs_from_text_ai(text, num_questions=5):
 
     prompt = f"""
 Extract {num_questions} multiple-choice questions (MCQs) from the following text.
-Return the result as a JSON array:
-{{ "question": "...", "type":"mcq", "options":["...","...","...","..."], "answer":"...", "description":"..." }}
+Return the result as a JSON array of objects with keys: question, type, options, answer, description.
 Text:
 {text}
 """
@@ -136,11 +135,14 @@ Text:
             messages=[{"role": "user", "content": prompt}],
             stream=False
         )
-        ai_text = ""
+        # Safely get the response content
         if hasattr(response.choices[0], "message"):
-            ai_text = response.choices[0].message.get("content","")
+            ai_text = response.choices[0].message.get("content", "")
         elif hasattr(response.choices[0], "text"):
             ai_text = response.choices[0].text
+        else:
+            ai_text = ""
+
         mcqs = json.loads(ai_text)
     except Exception as e:
         st.error(f"Error generating MCQs: {e}")
@@ -205,7 +207,6 @@ def student_quiz_page(quiz_id):
             st.session_state.quiz_started = True
             st.rerun()
     else:
-        # Timer
         start = st.session_state.start_time
         total_seconds = quiz["time_limit"]*60
         remaining = total_seconds - (time.time()-start)
@@ -218,7 +219,6 @@ def student_quiz_page(quiz_id):
         
         circular_timer(remaining,total_seconds)
 
-        # Shuffle questions per session
         if "shuffled_questions" not in st.session_state:
             st.session_state.shuffled_questions = quiz["questions"].copy()
             random.shuffle(st.session_state.shuffled_questions)
@@ -228,7 +228,6 @@ def student_quiz_page(quiz_id):
 
         st.write(f"Q{idx+1}/{len(quiz['questions'])}: {q['question']}")
 
-        # Render options based on type
         if q["type"]=="mcq":
             opts = q["options"].copy()
             random.shuffle(opts)
@@ -241,7 +240,6 @@ def student_quiz_page(quiz_id):
             answer = st.text_input("Your Answer", key=f"q{idx}")
             st.session_state.answers[idx] = answer
 
-        # Navigation
         col1,col2 = st.columns(2)
         with col1:
             if idx>0 and st.button("⬅ Previous"): 
@@ -338,7 +336,6 @@ def admin_panel():
     with tab5:
         st.subheader("AI MCQs / Chat Tutor")
         if OPENROUTER_AVAILABLE:
-            # AI MCQs
             if quizzes:
                 selected = st.selectbox("Select Quiz for AI-generated MCQs", list(quizzes.keys()), format_func=lambda x: quizzes[x]["name"])
                 text_input = st.text_area("Paste Text/Slides Here")
@@ -351,7 +348,7 @@ def admin_panel():
                             save_json(QUIZ_FILE, quizzes)
                             st.success(f"{len(new_qs)} AI MCQs added!")
                         else: st.warning("No MCQs generated.")
-            # AI Chat Tutor
+
             question = st.text_input("Ask AI Tutor")
             if st.button("Get Answer"):
                 if question.strip():
@@ -360,7 +357,6 @@ def admin_panel():
                             model="mistralai/mistral-7b-instruct:free",
                             messages=[{"role":"user","content":question}]
                         )
-                        # Safe extraction of content
                         content = ""
                         if hasattr(response.choices[0], "message"):
                             content = response.choices[0].message.get("content", "")
