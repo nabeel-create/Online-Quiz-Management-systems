@@ -1,6 +1,6 @@
-streamlit==1.27.0
-pandas==2.1.0
-altair==5.0.1
-fpdf==1.7.2
-PyPDF2==3.1.0
-openrouter==0.3.2  # Optional: Only if you want AI MCQ generation & chat tutor
+streamlit>=1.27.0
+pandas>=2.0
+altair>=5.0
+fpdf2>=2.7.1
+PyPDF2>=3.1
+# openrouter>=0.3.2  # Optional AI features
