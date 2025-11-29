@@ -1,3 +1,7 @@
+# ================================
+# 📝 AI Quiz System – Full Version
+# ================================
+
 import streamlit as st
 import json, uuid, os, time, math, random
 from datetime import datetime
@@ -7,15 +11,13 @@ from fpdf import FPDF
 from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------
-# Google Gemini
+# Optional AI (Gemini)
 # ---------------------------
 try:
     from google import genai
-    client = genai.Client()  # Make sure GOOGLE_API_KEY is set in env
     GEMINI_AVAILABLE = True
-except Exception as e:
+except ModuleNotFoundError:
     GEMINI_AVAILABLE = False
-    print("Google Gemini not available:", e)
 
 # ---------------------------
 # Ensure data folder exists
@@ -48,20 +50,6 @@ question_bank = load_json(BANK_FILE)
 st.set_page_config(page_title="AI Quiz System", layout="wide")
 
 # ---------------------------
-# CSS Styling
-# ---------------------------
-st.markdown("""
-<style>
-body { transition: background-color 0.5s, color 0.5s; }
-.quiz-card { padding:15px; border-radius:12px; background:#f8f9fa; border:2px solid #eee; margin-bottom:15px; transition:0.3s; }
-.quiz-card:hover { background:#f0f0f0; border-color:#999; }
-.dark .quiz-card { background:#2e2e2e; color:white; border-color:#555; }
-.button-style { background-color:#4CAF50; color:white; padding:10px 20px; font-size:16px; border-radius:8px; }
-@media only screen and (max-width:768px) { .quiz-card { padding:10px; } .button-style { width:100%; } }
-</style>
-""", unsafe_allow_html=True)
-
-# ---------------------------
 # Session State
 # ---------------------------
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
@@ -73,13 +61,12 @@ if "quiz_started" not in st.session_state: st.session_state.quiz_started = False
 if "answers" not in st.session_state: st.session_state.answers = {}
 
 # ---------------------------
-# BASE URL
+# Base URL from secrets
 # ---------------------------
-def get_base_url():
-    try: return st.secrets["APP_URL"]
-    except: return "http://localhost:8501"
-
-BASE_URL = get_base_url()
+try:
+    BASE_URL = st.secrets["app"]["url"]
+except:
+    BASE_URL = "http://localhost:8501"
 
 # ---------------------------
 # Theme Toggle
@@ -106,14 +93,23 @@ def admin_login():
             st.error("Invalid credentials!")
 
 # ---------------------------
-# AI MCQ Generation using Gemini
+# Open Gemini AI
+# ---------------------------
+if GEMINI_AVAILABLE:
+    try:
+        gemini_client = genai.Client(api_key=st.secrets["google"]["api_key"])
+    except:
+        GEMINI_AVAILABLE = False
+        st.warning("Gemini API key not found in secrets. AI features disabled.")
+
+# ---------------------------
+# AI MCQ Generation
 # ---------------------------
 def generate_mcqs_from_text_ai(text, num_questions=5):
     mcqs = []
     if not GEMINI_AVAILABLE:
-        st.error("Google Gemini not available. Cannot generate MCQs.")
+        st.error("Gemini AI not available. Cannot generate MCQs.")
         return mcqs
-
     prompt = f"""
 Extract {num_questions} multiple-choice questions (MCQs) from the following text.
 Return the result as a JSON array:
@@ -122,15 +118,31 @@ Text:
 {text}
 """
     try:
-        response = client.models.generate_content(
+        response = gemini_client.models.generate_content(
             model="gemini-3-pro-preview",
             contents=prompt
         )
-        mcqs = json.loads(response.text)
+        ai_text = response.text
+        mcqs = json.loads(ai_text)
     except Exception as e:
         st.error(f"Error generating MCQs: {e}")
         st.info("AI may not have returned valid JSON. Try shorter text or fewer questions.")
     return mcqs
+
+# ---------------------------
+# AI Tutor
+# ---------------------------
+def ask_ai_tutor(question):
+    if not GEMINI_AVAILABLE:
+        return "Gemini AI not available. Add API key in secrets."
+    try:
+        response = gemini_client.models.generate_content(
+            model="gemini-3-pro-preview",
+            contents=question
+        )
+        return response.text
+    except Exception as e:
+        return f"Error: {e}"
 
 # ---------------------------
 # Circular Timer
@@ -159,7 +171,7 @@ def submit_quiz(quiz, answers):
         if q["type"] in ["mcq","true_false","fill_blank"]:
             if user_ans.strip().lower() == q["answer"].strip().lower():
                 score+=1
-        else: # short_answer (manual check)
+        else: # short_answer
             if user_ans.strip():
                 score+=1
     rid = str(uuid.uuid4())
@@ -190,6 +202,7 @@ def student_quiz_page(quiz_id):
             st.session_state.quiz_started = True
             st.rerun()
     else:
+        # Timer
         start = st.session_state.start_time
         total_seconds = quiz["time_limit"]*60
         remaining = total_seconds - (time.time()-start)
@@ -202,6 +215,7 @@ def student_quiz_page(quiz_id):
         
         circular_timer(remaining,total_seconds)
 
+        # Shuffle questions per session
         if "shuffled_questions" not in st.session_state:
             st.session_state.shuffled_questions = quiz["questions"].copy()
             random.shuffle(st.session_state.shuffled_questions)
@@ -211,6 +225,7 @@ def student_quiz_page(quiz_id):
 
         st.write(f"Q{idx+1}/{len(quiz['questions'])}: {q['question']}")
 
+        # Render options based on type
         if q["type"]=="mcq":
             opts = q["options"].copy()
             random.shuffle(opts)
@@ -219,10 +234,11 @@ def student_quiz_page(quiz_id):
         elif q["type"]=="true_false":
             choice = st.radio("", ["True","False"], key=f"q{idx}")
             st.session_state.answers[idx] = choice
-        elif q["type"] in ["fill_blank","short_answer"]:
+        elif q["type"]=="fill_blank" or q["type"]=="short_answer":
             answer = st.text_input("Your Answer", key=f"q{idx}")
             st.session_state.answers[idx] = answer
 
+        # Navigation
         col1,col2 = st.columns(2)
         with col1:
             if idx>0 and st.button("⬅ Previous"): 
@@ -252,6 +268,7 @@ def admin_panel():
     st.title("👑 Admin Dashboard")
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["➕ Create Quiz","📄 Quiz List","📊 Live Results","📈 Analytics","🧠 AI Tools"])
 
+    # ➕ Create Quiz & Add Questions
     with tab1:
         st.subheader("Create Quiz")
         quiz_name = st.text_input("Quiz Name")
@@ -285,6 +302,7 @@ def admin_panel():
                 else: st.error("Question and answer required!")
         else: st.info("No quizzes yet.")
 
+    # 📄 Quiz List
     with tab2:
         st.subheader("All Quizzes")
         for qid,qdata in quizzes.items():
@@ -296,6 +314,7 @@ def admin_panel():
                 st.code(f"{BASE_URL}?quiz={qid}")
                 st.markdown("</div>", unsafe_allow_html=True)
 
+    # 📊 Live Results
     with tab3:
         st.subheader("Live Results")
         st_autorefresh(interval=5000, key="live_refresh")
@@ -306,6 +325,7 @@ def admin_panel():
         else:
             st.info("No submissions yet.")
 
+    # 📈 Analytics
     with tab4:
         st.subheader("Analytics")
         if results:
@@ -316,14 +336,13 @@ def admin_panel():
             st.altair_chart(chart, use_container_width=True)
         else: st.info("No data yet.")
 
+    # 🧠 AI Tools
     with tab5:
         st.subheader("AI MCQs / Chat Tutor")
-        
         if GEMINI_AVAILABLE:
-            # AI-generated MCQs
+            # AI MCQs
             if quizzes:
-                selected = st.selectbox("Select Quiz for AI-generated MCQs", list(quizzes.keys()), 
-                                        format_func=lambda x: quizzes[x]["name"])
+                selected = st.selectbox("Select Quiz for AI-generated MCQs", list(quizzes.keys()), format_func=lambda x: quizzes[x]["name"])
                 text_input = st.text_area("Paste Text/Slides Here")
                 num_questions = st.number_input("Number of MCQs",1,10,5)
                 if st.button("Generate AI MCQs"):
@@ -333,22 +352,15 @@ def admin_panel():
                             quizzes[selected]["questions"].extend(new_qs)
                             save_json(QUIZ_FILE, quizzes)
                             st.success(f"{len(new_qs)} AI MCQs added!")
-                        else:
-                            st.warning("No MCQs generated.")
+                        else: st.warning("No MCQs generated.")
             # AI Chat Tutor
             question = st.text_input("Ask AI Tutor")
             if st.button("Get Answer"):
                 if question.strip():
-                    try:
-                        response = client.models.generate_content(
-                            model="gemini-3-pro-preview",
-                            contents=question
-                        )
-                        st.write(response.text)
-                    except Exception as e:
-                        st.error(f"Error getting answer: {e}")
+                    answer = ask_ai_tutor(question)
+                    st.write(answer)
         else:
-            st.info("Google Gemini not available. Set your API key or credentials.")
+            st.info("Gemini AI not available. Add API key in secrets for AI features.")
 
 # ---------------------------
 # Router
