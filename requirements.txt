@@ -1,6 +1,6 @@
-streamlit
-pandas
-altair
-textract
-openrouter
-fpdf
+streamlit==1.28.0
+pandas==2.1.1
+altair==5.0.1
+fpdf==1.7.2
+textract==1.6.5
+openrouter==0.2.8
