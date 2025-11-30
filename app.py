@@ -1,126 +1,89 @@
 import streamlit as st
-import json, uuid, os, time, math, random
-from datetime import datetime
+import os, json, uuid, time, math, base64
 import pandas as pd
 import altair as alt
-from fpdf import FPDF
+from datetime import datetime
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import ImageReader
 from streamlit_autorefresh import st_autorefresh
 
-# Optional AI (OpenRouter)
-try:
-    from openrouter import OpenRouter
-    OPENROUTER_AVAILABLE = True
-except ModuleNotFoundError:
-    OPENROUTER_AVAILABLE = False
-
-# Ensure data folder exists
+# --------------------------------------------------
+#  CREATE DATA FOLDERS
+# --------------------------------------------------
 if not os.path.exists("data"):
     os.makedirs("data")
 
-QUIZ_FILE = "data/quizzes.json"
+QUIZ_FILE   = "data/quizzes.json"
 RESULT_FILE = "data/results.json"
-USERS_FILE = "data/users.json"
-BANK_FILE = "data/question_bank.json"
+USER_FILE   = "data/users.json"
+LOGO_FILE   = "data/logo.png"
 
-def load_json(path):
-    if not os.path.exists(path): return {}
+def load_json(path, default={}):
+    if not os.path.exists(path):
+        return default
     try:
-        with open(path, "r") as f: return json.load(f)
-    except: return {}
+        with open(path, "r") as f:
+            return json.load(f)
+    except:
+        return default
 
 def save_json(path, data):
-    with open(path, "w") as f: json.dump(data, f, indent=4)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=4)
 
-quizzes = load_json(QUIZ_FILE)
-results = load_json(RESULT_FILE)
-users = load_json(USERS_FILE)
-question_bank = load_json(BANK_FILE)
+quizzes = load_json(QUIZ_FILE, {})
+results = load_json(RESULT_FILE, {})
+users   = load_json(USER_FILE, {})
 
-# Streamlit Page Settings
+# --------------------------------------------------
+# STREAMLIT PAGE SETUP
+# --------------------------------------------------
 st.set_page_config(page_title="AI Quiz System", layout="wide")
 
-# CSS Styling
 st.markdown("""
 <style>
-body { transition: background-color 0.5s, color 0.5s; }
-.quiz-card { padding:15px; border-radius:12px; background:#f8f9fa; border:2px solid #eee; margin-bottom:15px; transition:0.3s; }
-.quiz-card:hover { background:#f0f0f0; border-color:#999; }
-.dark .quiz-card { background:#2e2e2e; color:white; border-color:#555; }
-.button-style { background-color:#4CAF50; color:white; padding:10px 20px; font-size:16px; border-radius:8px; }
-@media only screen and (max-width:768px) { .quiz-card { padding:10px; } .button-style { width:100%; } }
+.quiz-card {
+    padding: 15px;
+    border-radius: 12px;
+    background:#f8f9fa;
+    margin-bottom:15px;
+    border:2px solid #eee;
+}
+.quiz-card:hover { background:#f0f0f0; }
+.dark .quiz-card { background:#2d2d2d; border-color:#555; }
 </style>
 """, unsafe_allow_html=True)
 
-# Session State
-if "logged_in" not in st.session_state: st.session_state.logged_in = False
-if "current_quiz" not in st.session_state: st.session_state.current_quiz = None
-if "start_time" not in st.session_state: st.session_state.start_time = None
-if "theme" not in st.session_state: st.session_state.theme = "light"
-if "question_index" not in st.session_state: st.session_state.question_index = 0
-if "quiz_started" not in st.session_state: st.session_state.quiz_started = False
-if "answers" not in st.session_state: st.session_state.answers = {}
+# --------------------------------------------------
+# SESSION STATE
+# --------------------------------------------------
+ss = st.session_state
+ss.setdefault("logged_in", False)
+ss.setdefault("quiz_started", False)
+ss.setdefault("question_index", 0)
+ss.setdefault("answers", {})
+ss.setdefault("start_time", None)
 
-# Theme Toggle
-def toggle_theme():
-    st.session_state.theme = "dark" if st.session_state.theme=="light" else "light"
+# --------------------------------------------------
+# DARK MODE
+# --------------------------------------------------
+if "theme" not in ss:
+    ss.theme = "light"
 
-if st.button("Toggle Dark/Light Theme"): toggle_theme()
-if st.session_state.theme == "dark": st.markdown("<body class='dark'>", unsafe_allow_html=True)
+if st.button("Toggle Dark/Light Theme"):
+    ss.theme = "dark" if ss.theme == "light" else "light"
 
-# Admin Login
-def admin_login():
-    st.title("🔐 Admin Login")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Login"):
-        if username=="admin" and password=="admin123":
-            st.session_state.logged_in = True
-            st.success("Login Successful!")
-            st.rerun()
-        else:
-            st.error("Invalid credentials!")
+if ss.theme == "dark":
+    st.markdown("<body class='dark'>", unsafe_allow_html=True)
 
-# OpenRouter AI Setup
-if OPENROUTER_AVAILABLE:
-    try:
-        api_key = st.secrets["openrouter"]["api_key"]
-        openrouter = OpenRouter(api_key=api_key)
-    except:
-        st.warning("OpenRouter API key not found in secrets. AI MCQ generation disabled.")
-        OPENROUTER_AVAILABLE = False
-
-# AI MCQ Generation
-def generate_mcqs_from_text_ai(text, num_questions=5):
-    mcqs = []
-    if not OPENROUTER_AVAILABLE:
-        st.error("OpenRouter not available. Cannot generate MCQs.")
-        return mcqs
-
-    prompt = f"""
-Extract {num_questions} multiple-choice questions (MCQs) from the following text.
-Return the result as a JSON array:
-{{ "question": "...", "type":"mcq", "options":["...","...","...","..."], "answer":"...", "description":"..." }}
-Text:
-{text}
-"""
-    try:
-        response = openrouter.chat.send(
-            model="google/gemma-3n-e2b-it:free",
-            messages=[{"role": "user", "content": prompt}],
-            stream=False
-        )
-        ai_text = response.choices[0].message.get("content","")
-        mcqs = json.loads(ai_text)
-    except Exception as e:
-        st.error(f"Error generating MCQs: {e}")
-        st.info("AI may not have returned valid JSON. Try shorter text or fewer questions.")
-    return mcqs
-
-# Circular Timer
+# --------------------------------------------------
+# TIMER SVG
+# --------------------------------------------------
 def circular_timer(seconds_left, total_seconds):
     pct = seconds_left/total_seconds
     radius = 80
-    color = "#4CAF50" if pct>0.2 else "#FF0000"
+    color = "#4CAF50" if pct > 0.2 else "#FF0000"
     svg = f"""
     <svg width="200" height="200">
       <circle cx="100" cy="100" r="{radius}" fill="none" stroke="#eee" stroke-width="15"/>
@@ -131,167 +94,326 @@ def circular_timer(seconds_left, total_seconds):
     """
     st.markdown(svg, unsafe_allow_html=True)
 
-# Submit Quiz
-def submit_quiz(quiz, answers):
-    score = 0
-    for i,q in enumerate(quiz["questions"]):
-        user_ans = answers.get(i,"")
-        if q["type"] in ["mcq","true_false","fill_blank"]:
-            if user_ans.strip().lower() == q["answer"].strip().lower():
-                score+=1
-        else: # short_answer (manual check)
-            if user_ans.strip():
-                score+=1
-    rid = str(uuid.uuid4())
-    results[rid] = {"name":st.session_state.name,"regno":st.session_state.regno,"quiz_id":st.session_state.current_quiz,"score":score,"date":str(datetime.now())}
-    save_json(RESULT_FILE, results)
-    return score
+# --------------------------------------------------
+# CERTIFICATE GENERATION (LOGO + PROFESSIONAL MINIMAL)
+# --------------------------------------------------
+def generate_certificate(name, quiz_name, score, total):
+    cert_path = f"data/certificate_{uuid.uuid4()}.pdf"
+    c = canvas.Canvas(cert_path, pagesize=letter)
+    width, height = letter
 
-# Student Quiz Page
+    # BORDER
+    c.setLineWidth(4)
+    c.rect(20, 20, width - 40, height - 40)
+
+    # LOGO IF EXISTS
+    if os.path.exists(LOGO_FILE):
+        logo = ImageReader(LOGO_FILE)
+        c.drawImage(logo, width/2 - 60, height - 150, width=120, height=80, preserveAspectRatio=True)
+
+    # HEADER
+    c.setFont("Helvetica-Bold", 26)
+    c.drawCentredString(width/2, height - 180, "Certificate of Achievement")
+
+    # NAME
+    c.setFont("Helvetica-Bold", 22)
+    c.drawCentredString(width/2, height - 240, name)
+
+    c.setFont("Helvetica", 16)
+    c.drawCentredString(width/2, height - 270, "has successfully completed")
+
+    c.setFont("Helvetica-Bold", 18)
+    c.drawCentredString(width/2, height - 300, quiz_name)
+
+    # SCORE
+    c.setFont("Helvetica", 14)
+    c.drawCentredString(width/2, height - 340, f"Score: {score}/{total}")
+
+    # DATE
+    c.drawCentredString(width/2, height - 370, datetime.now().strftime("%d %B %Y"))
+
+    c.showPage()
+    c.save()
+    return cert_path
+
+# --------------------------------------------------
+# STUDENT QUIZ PAGE
+# --------------------------------------------------
 def student_quiz_page(quiz_id):
-    if quiz_id not in quizzes: st.error("Invalid Quiz!"); return
+    if quiz_id not in quizzes:
+        st.error("Invalid Quiz")
+        return
+
     quiz = quizzes[quiz_id]
+
     st.title(f"📝 {quiz['name']}")
     st.info(f"Time Limit: {quiz['time_limit']} min")
 
-    if not st.session_state.quiz_started:
-        name = st.text_input("Your Name")
-        regno = st.text_input("Registration Number")
+    if not ss.quiz_started:
+        ss.name = st.text_input("Your Name")
+        ss.regno = st.text_input("Registration Number")
         if st.button("Start Quiz"):
-            if not name or not regno: st.error("Enter details!"); return
-            st.session_state.current_quiz = quiz_id
-            st.session_state.start_time = time.time()
-            st.session_state.name = name
-            st.session_state.regno = regno
-            st.session_state.question_index = 0
-            st.session_state.answers = {}
-            st.session_state.quiz_started = True
+            if not ss.name or not ss.regno:
+                st.error("Enter your details")
+                return
+
+            ss.quiz_started = True
+            ss.start_time = time.time()
+            ss.question_index = 0
+            ss.answers = {}
+
+            # SHUFFLE QUESTIONS
+            quiz["questions"] = quiz["questions"].copy()
+            import random
+            random.shuffle(quiz["questions"])
+
             st.rerun()
+
     else:
-        start = st.session_state.start_time
-        total_seconds = quiz["time_limit"]*60
-        remaining = total_seconds - (time.time()-start)
-        if remaining<=0: 
-            st.warning("⏳ Time Over! Auto-submitting...")
-            score = submit_quiz(quiz, st.session_state.answers)
-            st.success(f"🎉 Quiz Submitted! Score: {score}/{len(quiz['questions'])}")
-            st.session_state.quiz_started=False
-            return
-        
-        circular_timer(remaining,total_seconds)
+        start = ss.start_time
+        total_sec = quiz["time_limit"] * 60
+        remaining = total_sec - (time.time() - start)
 
-        if "shuffled_questions" not in st.session_state:
-            st.session_state.shuffled_questions = quiz["questions"].copy()
-            random.shuffle(st.session_state.shuffled_questions)
+        if remaining <= 0:
+            ss.quiz_started = False
+            st.error("⏳ Time Over! Auto-submitted.")
+            st.rerun()
 
-        idx = st.session_state.question_index
-        q = st.session_state.shuffled_questions[idx]
+        circular_timer(remaining, total_sec)
 
-        st.write(f"Q{idx+1}/{len(quiz['questions'])}: {q['question']}")
-        if q["type"]=="mcq":
+        idx = ss.question_index
+        q = quiz["questions"][idx]
+
+        st.write(f"### Q{idx+1}/{len(quiz['questions'])}")
+        st.write(q["question"])
+
+        qtype = q.get("type", "mcq")
+
+        if qtype == "mcq":
+            import random
             opts = q["options"].copy()
             random.shuffle(opts)
-            choice = st.radio("", opts, key=f"q{idx}")
-            st.session_state.answers[idx] = choice
-        elif q["type"]=="true_false":
-            choice = st.radio("", ["True","False"], key=f"q{idx}")
-            st.session_state.answers[idx] = choice
-        elif q["type"] in ["fill_blank","short_answer"]:
-            answer = st.text_input("Your Answer", key=f"q{idx}")
-            st.session_state.answers[idx] = answer
+            ans = st.radio("Select one:", opts, key=f"q{idx}")
 
-        col1,col2 = st.columns(2)
+        elif qtype == "truefalse":
+            ans = st.radio("Select:", ["True", "False"], key=f"q{idx}")
+
+        elif qtype == "short":
+            ans = st.text_input("Answer:", key=f"q{idx}")
+
+        elif qtype == "fill":
+            ans = st.text_input("Fill in the blank:", key=f"q{idx}")
+
+        ss.answers[idx] = ans
+
+        col1, col2 = st.columns(2)
+
         with col1:
-            if idx>0 and st.button("⬅ Previous"): 
-                st.session_state.question_index-=1
+            if idx > 0 and st.button("⬅ Previous"):
+                ss.question_index -= 1
                 st.rerun()
-        with col2:
-            if idx<len(quiz["questions"])-1 and st.button("Next ➡"): 
-                st.session_state.question_index+=1
-                st.rerun()
-            elif idx==len(quiz["questions"])-1 and st.button("Submit Quiz"):
-                score = submit_quiz(quiz, st.session_state.answers)
-                st.success(f"🎉 Quiz Submitted! Score: {score}/{len(quiz['questions'])}")
-                st.write("### ✅ Answer Explanations:")
-                for i, q in enumerate(quiz["questions"]):
-                    st.write(f"**Q{i+1}: {q['question']}**")
-                    st.write(f"Your Answer: {st.session_state.answers.get(i,'Not Answered')}")
-                    st.write(f"Correct Answer: {q['answer']}")
-                    st.write(f"Explanation: {q.get('description','No explanation')}")
-                    st.write("---")
-                st.balloons()
-                st.session_state.quiz_started=False
 
-# Admin Panel
+        with col2:
+            if idx < len(quiz["questions"])-1 and st.button("Next ➡"):
+                ss.question_index += 1
+                st.rerun()
+            elif idx == len(quiz["questions"])-1 and st.button("Submit Quiz"):
+                score = 0
+                for i, ques in enumerate(quiz["questions"]):
+                    if str(ss.answers.get(i, "")).strip().lower() == str(ques["answer"]).strip().lower():
+                        score += 1
+
+                rid = str(uuid.uuid4())
+                results[rid] = {
+                    "name": ss.name,
+                    "regno": ss.regno,
+                    "quiz_id": quiz_id,
+                    "score": score,
+                    "total": len(quiz["questions"]),
+                    "date": str(datetime.now())
+                }
+                save_json(RESULT_FILE, results)
+
+                st.success(f"🎉 Quiz Submitted! Score: {score}/{len(quiz['questions'])}")
+
+                # Certificate
+                cert_path = generate_certificate(ss.name, quiz["name"], score, len(quiz["questions"]))
+                with open(cert_path, "rb") as f:
+                    st.download_button("🎖 Download Certificate", data=f, file_name="certificate.pdf")
+
+                st.balloons()
+                ss.quiz_started = False
+
+# --------------------------------------------------
+# ADMIN PANEL
+# --------------------------------------------------
 def admin_panel():
     st.title("👑 Admin Dashboard")
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["➕ Create Quiz","📄 Quiz List","📊 Live Results","📈 Analytics","🧠 AI Tools"])
 
-    with tab5:
-        st.subheader("AI MCQs / Chat Tutor")
+    tabs = st.tabs(["➕ Create Quiz", "📄 Quiz List", "📊 Results", "🎓 Question Bank", "🏅 Leaderboard", "📤 Export"])
 
-        # OpenRouter AI
-        if OPENROUTER_AVAILABLE:
-            if quizzes:
-                selected = st.selectbox(
-                    "Select Quiz for AI-generated MCQs",
-                    list(quizzes.keys()),
-                    format_func=lambda x: quizzes[x]["name"]
-                )
-                text_input = st.text_area("Paste Text/Slides Here")
-                num_questions = st.number_input("Number of MCQs", 1, 10, 5)
-                if st.button("Generate AI MCQs"):
-                    if text_input.strip():
-                        new_qs = generate_mcqs_from_text_ai(text_input, num_questions)
-                        if new_qs:
-                            quizzes[selected]["questions"].extend(new_qs)
-                            save_json(QUIZ_FILE, quizzes)
-                            st.success(f"{len(new_qs)} AI MCQs added!")
-                        else:
-                            st.warning("No MCQs generated.")
+    # --------------------------------------------------
+    # CREATE QUIZ
+    # --------------------------------------------------
+    with tabs[0]:
+        st.subheader("Create Quiz")
+        name = st.text_input("Quiz Name")
+        time_limit = st.number_input("Time Limit (min)", 1, 60, 5)
 
-            question = st.text_input("Ask AI Tutor")
-            if st.button("Get Answer"):
-                if question.strip():
-                    response = openrouter.chat.send(
-                        model="google/gemma-3n-e2b-it:free",
-                        messages=[{"role": "user", "content": question}]
-                    )
-                    st.write(response.choices[0].message["content"])
+        if st.button("Create Quiz"):
+            qid = str(uuid.uuid4())
+            quizzes[qid] = {"name": name, "time_limit": time_limit, "questions": []}
+            save_json(QUIZ_FILE, quizzes)
+            st.success("Quiz Created!")
+
+        st.write("---")
+        st.subheader("Add Questions")
+        if quizzes:
+            qid = st.selectbox("Select Quiz", quizzes.keys(), format_func=lambda x: quizzes[x]["name"])
+            text = st.text_input("Question")
+            qtype = st.selectbox("Question Type", ["mcq", "truefalse", "short", "fill"])
+
+            if qtype == "mcq":
+                options = st.text_input("Options (comma)")
+                answer = st.text_input("Correct Answer")
+            elif qtype == "truefalse":
+                options = ["True", "False"]
+                answer = st.selectbox("Correct Answer", options)
+            else:
+                options = []
+                answer = st.text_input("Correct Answer")
+
+            if st.button("Add Question"):
+                quizzes[qid]["questions"].append({
+                    "question": text,
+                    "type": qtype,
+                    "options": options if isinstance(options, list) else [o.strip() for o in options.split(",")],
+                    "answer": answer
+                })
+                save_json(QUIZ_FILE, quizzes)
+                st.success("Question Added!")
+
+        st.write("---")
+        st.subheader("Upload Certificate Logo")
+        logo = st.file_uploader("Upload PNG Logo", type=["png"])
+        if logo:
+            with open(LOGO_FILE, "wb") as f:
+                f.write(logo.read())
+            st.success("Logo Uploaded!")
+
+    # --------------------------------------------------
+    # QUIZ LIST
+    # --------------------------------------------------
+    with tabs[1]:
+        st.subheader("All Quizzes")
+        query = st.text_input("Search Quiz")
+        for qid, q in quizzes.items():
+            if query.lower() in q["name"].lower():
+                st.markdown(f"<div class='quiz-card'>", unsafe_allow_html=True)
+                st.write(f"### {q['name']}")
+                st.write(f"Time: {q['time_limit']} min")
+                st.write(f"Questions: {len(q['questions'])}")
+                st.code(f"{st.experimental_get_query_params()}?quiz={qid}")
+                if st.button("Delete", key=qid):
+                    del quizzes[qid]
+                    save_json(QUIZ_FILE, quizzes)
+                    st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+
+    # --------------------------------------------------
+    # RESULTS
+    # --------------------------------------------------
+    with tabs[2]:
+        st.subheader("Live Results")
+        st_autorefresh(interval=4000)
+
+        if results:
+            df = pd.DataFrame(results).T
+            st.dataframe(df)
+            st.metric("Total Submissions", len(df))
         else:
-            st.info("OpenRouter not available. Add API key in secrets for AI features.")
+            st.info("No results yet.")
 
-        # Puter AI Demo
-        st.markdown("---")
-        st.subheader("Puter AI Chat Demo")
-        puter_prompt = st.text_input("Enter prompt for Puter AI", "Write a short poem about coding")
-        if st.button("Run Puter AI Prompt"):
-            puter_html = f"""
-            <html>
-            <body>
-                <script src="https://js.puter.com/v2/"></script>
-                <script>
-                    const models = ["gpt-5.1","gpt-5","gpt-5-nano","gpt-5-mini","gpt-5-chat-latest"];
-                    models.forEach(model => {{
-                        puter.ai.chat("{puter_prompt}", {{ model: model }}).then(response => {{
-                            puter.print("<h4>Model: "+model+"</h4>");
-                            puter.print(response);
-                        }});
-                    }});
-                </script>
-            </body>
-            </html>
-            """
-            import streamlit.components.v1 as components
-            components.html(puter_html, height=500)
+    # --------------------------------------------------
+    # QUESTION BANK
+    # --------------------------------------------------
+    with tabs[3]:
+        st.subheader("Question Bank")
+        st.info("All added questions can be reused here.")
 
-# Router
+        bank = []
+        for qid, qz in quizzes.items():
+            for q in qz["questions"]:
+                bank.append(q)
+
+        if bank:
+            st.dataframe(pd.DataFrame(bank))
+        else:
+            st.info("No questions in bank.")
+
+    # --------------------------------------------------
+    # LEADERBOARD
+    # --------------------------------------------------
+    with tabs[4]:
+        st.subheader("Leaderboard")
+        if results:
+            df = pd.DataFrame(results).T
+            df.sort_values("score", ascending=False, inplace=True)
+            st.dataframe(df[["name", "score", "total", "date"]])
+        else:
+            st.info("No submissions yet.")
+
+    # --------------------------------------------------
+    # EXPORT
+    # --------------------------------------------------
+    with tabs[5]:
+        st.subheader("Export Results")
+
+        if results:
+            df = pd.DataFrame(results).T
+
+            csv = df.to_csv().encode("utf-8")
+            st.download_button("📥 Download CSV", csv, "results.csv")
+
+            # Simple PDF export
+            pdf_path = "data/results_export.pdf"
+            c = canvas.Canvas(pdf_path, pagesize=letter)
+            c.drawString(50, 770, "Quiz Results Export")
+            n = 720
+            for i, row in df.iterrows():
+                c.drawString(50, n, f"{row['name']} - {row['score']}/{row['total']} ({row['date']})")
+                n -= 20
+            c.save()
+
+            with open(pdf_path, "rb") as f:
+                st.download_button("📄 Download PDF", f, "results.pdf")
+        else:
+            st.info("No data available.")
+
+# --------------------------------------------------
+# LOGIN PAGE
+# --------------------------------------------------
+def admin_login():
+    st.title("🔐 Admin Login")
+    user = st.text_input("Username")
+    pwd = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if user == "admin" and pwd == "admin123":
+            ss.logged_in = True
+            st.rerun()
+        else:
+            st.error("Invalid Login")
+
+# --------------------------------------------------
+# ROUTER
+# --------------------------------------------------
 params = st.experimental_get_query_params()
-quiz_id = params.get("quiz",[None])[0]
+quiz_id = params.get("quiz", [None])[0]
 
-if quiz_id: 
+if quiz_id:
     student_quiz_page(quiz_id)
-elif not st.session_state.logged_in: 
+elif not ss.logged_in:
     admin_login()
-else: 
+else:
     admin_panel()
