@@ -3,7 +3,6 @@ import os, json, uuid, time, math, random
 import pandas as pd
 from datetime import datetime
 from fpdf import FPDF
-from PIL import Image
 
 # ---------------------------
 # DATA FILES
@@ -194,7 +193,7 @@ def student_quiz_page(quiz_id):
                 if "options" in q: random.shuffle(q["options"])
             st.experimental_rerun()
     else:
-        # TIMER CONTAINER (updates without full page refresh)
+        # TIMER CONTAINER
         timer_placeholder = st.empty()
         total_sec = quiz["time_limit"]*60
         elapsed = int(time.time()-ss.start_time)
@@ -203,10 +202,9 @@ def student_quiz_page(quiz_id):
             timer_placeholder.markdown("<h2>⏳ Time Over! Auto-submitting...</h2>", unsafe_allow_html=True)
             submit_quiz(quiz_id)
             return
-
-        # Display timer
         timer_placeholder.markdown(circular_timer(remaining,total_sec), unsafe_allow_html=True)
-        
+        st.experimental_rerun()  # auto-refresh every rerun
+
         idx = ss.question_index
         q = quiz["questions"][idx]
         st.progress((idx+1)/len(quiz["questions"]))
