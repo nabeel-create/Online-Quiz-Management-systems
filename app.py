@@ -94,38 +94,30 @@ def generate_certificate(name,quiz_name,score,total,points):
     pdf.add_page()
     width=210
     height=297
-    # Border
     pdf.set_line_width(2)
-    color=(212,175,55) # Gold
+    color=(212,175,55)
     pdf.set_draw_color(*color)
     pdf.rect(10,10,width-20,height-20)
-    # Logo
     if os.path.exists(LOGO_FILE):
         pdf.image(LOGO_FILE, x=width/2-30, y=20, w=60)
-    # Header
     pdf.set_font("Helvetica","B",26)
     pdf.ln(50)
     pdf.cell(0,20,"Certificate of Achievement",0,1,'C')
-    # Name
     pdf.set_font("Helvetica","B",22)
     pdf.cell(0,10,name,0,1,'C')
     pdf.set_font("Helvetica","",16)
     pdf.cell(0,10,"has successfully completed",0,1,'C')
     pdf.set_font("Helvetica","B",18)
     pdf.cell(0,10,quiz_name,0,1,'C')
-    # Score & Points
     pdf.set_font("Helvetica","",14)
     pdf.cell(0,10,f"Score: {score}/{total} | Points: {points}",0,1,'C')
-    # Certificate Type
     percent = score/total*100
     ctype = "Bronze"
     if percent>=90: ctype="Gold"
     elif percent>=75: ctype="Silver"
     pdf.set_font("Helvetica","B",16)
     pdf.cell(0,10,f"Certificate Type: {ctype}",0,1,'C')
-    # Date
     pdf.cell(0,10,datetime.now().strftime("%d %B %Y"),0,1,'C')
-    # Signature
     pdf.line(width-70,height-50,width-10,height-50)
     pdf.set_font("Helvetica","",12)
     pdf.text(width-68,height-45,"Authorized Signature")
@@ -157,7 +149,6 @@ def student_quiz_page(quiz_id):
             ss.answers={}
             ss.consecutive_correct=0
             ss.points=0
-            # Shuffle questions/options
             random.shuffle(quiz["questions"])
             for q in quiz["questions"]:
                 if "options" in q: random.shuffle(q["options"])
@@ -207,10 +198,10 @@ def submit_quiz(quiz_id):
         if user_ans==correct_ans:
             score+=1
             ss.consecutive_correct+=1
-            ss.points += 10 + ss.consecutive_correct*2  # points + streak bonus
+            ss.points += 10 + ss.consecutive_correct*2
         else:
             ss.consecutive_correct=0
-            ss.points -= 2  # negative marking
+            ss.points -= 2
     rid=str(uuid.uuid4())
     results[rid]={
         "name":ss.name,
@@ -313,7 +304,8 @@ def admin_panel():
         st.subheader("Leaderboard")
         if results:
             df=pd.DataFrame(results).T
-            df.sort_values("points",ascending=False,inplace=True)
+            if "points" not in df.columns: df["points"]=0
+            df.sort_values("points", ascending=False, inplace=True)
             st.dataframe(df[["name","points","score","total","date"]])
         else: st.info("No submissions yet.")
 
