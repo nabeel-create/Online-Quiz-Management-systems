@@ -594,7 +594,7 @@ if quiz_id:
 elif not ss.logged_in:
     admin_login()
 else:
-    admin_panel() add in thisunchanged
+    admin_panel()
 
 # ---------------------------
 # ROUTER
