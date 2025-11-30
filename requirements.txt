@@ -3,5 +3,6 @@ pandas
 altair
 fpdf2
 PyPDF2
-openrouter
-google-genai
+openpyxl
+Pillow
+streamlit-autorefresh
