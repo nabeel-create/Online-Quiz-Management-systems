@@ -4,10 +4,9 @@ import pandas as pd
 from datetime import datetime
 from fpdf import FPDF
 from PIL import Image
-from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------
-# DATA FOLDERS & FILES
+# DATA FILES
 # ---------------------------
 if not os.path.exists("data"):
     os.makedirs("data")
@@ -68,7 +67,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------
-# TIMER SVG (1-SECOND REFRESH)
+# TIMER SVG
 # ---------------------------
 def circular_timer(seconds_left, total_seconds):
     pct = max(seconds_left / total_seconds, 0)
@@ -82,10 +81,10 @@ def circular_timer(seconds_left, total_seconds):
       <text x="100" y="110" text-anchor="middle" font-size="24" fill="black">{int(seconds_left)}s</text>
     </svg>
     """
-    st.markdown(svg, unsafe_allow_html=True)
+    return svg
 
 # ---------------------------
-# CERTIFICATE GENERATION
+# CERTIFICATE
 # ---------------------------
 def generate_certificate(name,quiz_name,score,total,points):
     pdf=FPDF('P','mm','A4')
@@ -124,13 +123,13 @@ def generate_certificate(name,quiz_name,score,total,points):
     return path
 
 # ---------------------------
-# SAVE ANSWER FUNCTION
+# SAVE ANSWER
 # ---------------------------
 def save_answer(idx):
     ss.answers[idx] = ss.answers.get(idx,"")
 
 # ---------------------------
-# QUIZ SUBMISSION
+# SUBMIT QUIZ
 # ---------------------------
 def submit_quiz(quiz_id):
     quiz = quizzes[quiz_id]
@@ -193,21 +192,21 @@ def student_quiz_page(quiz_id):
             random.shuffle(quiz["questions"])
             for q in quiz["questions"]:
                 if "options" in q: random.shuffle(q["options"])
-            st.rerun()
+            st.experimental_rerun()
     else:
-        # Auto-refresh every 1 second
-        st_autorefresh(interval=1000, key="quiz_timer")
-
+        # TIMER CONTAINER (updates without full page refresh)
+        timer_placeholder = st.empty()
         total_sec = quiz["time_limit"]*60
         elapsed = int(time.time()-ss.start_time)
         remaining = total_sec - elapsed
         if remaining <=0:
-            st.warning("⏳ Time Over! Auto-submitting...")
+            timer_placeholder.markdown("<h2>⏳ Time Over! Auto-submitting...</h2>", unsafe_allow_html=True)
             submit_quiz(quiz_id)
             return
 
-        circular_timer(remaining,total_sec)
-
+        # Display timer
+        timer_placeholder.markdown(circular_timer(remaining,total_sec), unsafe_allow_html=True)
+        
         idx = ss.question_index
         q = quiz["questions"][idx]
         st.progress((idx+1)/len(quiz["questions"]))
@@ -225,9 +224,9 @@ def student_quiz_page(quiz_id):
 
         col1,col2=st.columns(2)
         with col1:
-            if idx>0 and st.button("⬅ Previous"): ss.question_index-=1; st.rerun()
+            if idx>0 and st.button("⬅ Previous"): ss.question_index-=1; st.experimental_rerun()
         with col2:
-            if idx<len(quiz["questions"])-1 and st.button("Next ➡"): ss.question_index+=1; st.rerun()
+            if idx<len(quiz["questions"])-1 and st.button("Next ➡"): ss.question_index+=1; st.experimental_rerun()
             elif idx==len(quiz["questions"])-1 and st.button("Submit Quiz"): submit_quiz(quiz_id)
 
 # ---------------------------
@@ -237,7 +236,6 @@ def admin_panel():
     st.title("👑 Admin Dashboard")
     tabs = st.tabs(["➕ Create Quiz","📄 Quiz List","📊 Results","🏅 Leaderboard","📤 Export"])
     
-    # CREATE QUIZ
     with tabs[0]:
         st.subheader("Create Quiz")
         qname = st.text_input("Quiz Name")
@@ -247,7 +245,6 @@ def admin_panel():
             quizzes[qid]={"name":qname,"time_limit":tlimit,"questions":[]}
             save_json(QUIZ_FILE,quizzes)
             st.success("Quiz Created!")
-            st.text_input("Share Link:",f"{st.secrets.get('APP_URL','http://localhost:8501')}?quiz={qid}")
         st.write("---")
         st.subheader("Add Questions")
         if quizzes:
@@ -275,29 +272,21 @@ def admin_panel():
             with open(LOGO_FILE,"wb") as f: f.write(logo.read())
             st.success("Logo Uploaded!")
 
-    # QUIZ LIST
     with tabs[1]:
         st.subheader("All Quizzes")
         for qid,q in quizzes.items():
             st.markdown(f"<div class='quiz-card'>",unsafe_allow_html=True)
             st.write(f"### {q['name']}")
             st.write(f"Time: {q['time_limit']} min | Questions: {len(q['questions'])}")
-            url=f"{st.secrets.get('APP_URL','http://localhost:8501')}?quiz={qid}"
-            st.code(url)
-            if st.button("Delete",key=f"del_{qid}"): del quizzes[qid]; save_json(QUIZ_FILE,quizzes); st.rerun()
             st.markdown("</div>",unsafe_allow_html=True)
 
-    # RESULTS
     with tabs[2]:
         st.subheader("Live Results")
-        st_autorefresh(interval=4000)
         if results:
             df=pd.DataFrame(results).T
             st.dataframe(df)
-            st.metric("Total Submissions",len(df))
         else: st.info("No results yet.")
 
-    # LEADERBOARD
     with tabs[3]:
         st.subheader("Leaderboard")
         if results:
@@ -307,7 +296,6 @@ def admin_panel():
             st.dataframe(df[["name","points","score","total","date"]])
         else: st.info("No submissions yet.")
 
-    # EXPORT
     with tabs[4]:
         st.subheader("Export Results")
         if results:
@@ -326,7 +314,7 @@ def admin_login():
     if st.button("Login"):
         if user=="admin" and pwd=="admin123":
             ss.logged_in=True
-            st.rerun()
+            st.experimental_rerun()
         else: st.error("Invalid credentials!")
 
 # ---------------------------
