@@ -76,6 +76,7 @@ st.markdown("""
 def circular_timer(seconds_left,total_seconds):
     pct = max(0, seconds_left/total_seconds)
     radius = 80
+    st_autorefresh(interval=1000,key=f"timer_refresh_{quiz_id}")
     color = "#4CAF50" if pct>0.2 else "#FF0000"
     svg=f"""
     <svg width="200" height="200">
@@ -198,7 +199,7 @@ def student_quiz_page(quiz_id):
             st.warning("⏳ Time Over! Auto-submitting...")
             submit_quiz(quiz_id)
             return
-        st_autorefresh(interval=1000,key=f"timer_refresh_{quiz_id}")
+
         circular_timer(remaining,total_sec)
         idx = ss.question_index
         q = quiz["questions"][idx]
