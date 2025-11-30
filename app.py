@@ -1,16 +1,14 @@
 import streamlit as st
-import os, json, uuid, time, math, base64
+import os, json, uuid, time, math
 import pandas as pd
 import altair as alt
 from datetime import datetime
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.utils import ImageReader
+from fpdf import FPDF
 from streamlit_autorefresh import st_autorefresh
 
-# --------------------------------------------------
-#  CREATE DATA FOLDERS
-# --------------------------------------------------
+# ---------------------------
+# CREATE DATA FOLDER
+# ---------------------------
 if not os.path.exists("data"):
     os.makedirs("data")
 
@@ -36,9 +34,9 @@ quizzes = load_json(QUIZ_FILE, {})
 results = load_json(RESULT_FILE, {})
 users   = load_json(USER_FILE, {})
 
-# --------------------------------------------------
+# ---------------------------
 # STREAMLIT PAGE SETUP
-# --------------------------------------------------
+# ---------------------------
 st.set_page_config(page_title="AI Quiz System", layout="wide")
 
 st.markdown("""
@@ -55,35 +53,33 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --------------------------------------------------
+# ---------------------------
 # SESSION STATE
-# --------------------------------------------------
+# ---------------------------
 ss = st.session_state
 ss.setdefault("logged_in", False)
 ss.setdefault("quiz_started", False)
 ss.setdefault("question_index", 0)
 ss.setdefault("answers", {})
 ss.setdefault("start_time", None)
+ss.setdefault("theme", "light")
 
-# --------------------------------------------------
+# ---------------------------
 # DARK MODE
-# --------------------------------------------------
-if "theme" not in ss:
-    ss.theme = "light"
-
+# ---------------------------
 if st.button("Toggle Dark/Light Theme"):
-    ss.theme = "dark" if ss.theme == "light" else "light"
+    ss.theme = "dark" if ss.theme=="light" else "light"
 
 if ss.theme == "dark":
     st.markdown("<body class='dark'>", unsafe_allow_html=True)
 
-# --------------------------------------------------
+# ---------------------------
 # TIMER SVG
-# --------------------------------------------------
+# ---------------------------
 def circular_timer(seconds_left, total_seconds):
     pct = seconds_left/total_seconds
     radius = 80
-    color = "#4CAF50" if pct > 0.2 else "#FF0000"
+    color = "#4CAF50" if pct>0.2 else "#FF0000"
     svg = f"""
     <svg width="200" height="200">
       <circle cx="100" cy="100" r="{radius}" fill="none" stroke="#eee" stroke-width="15"/>
@@ -94,58 +90,64 @@ def circular_timer(seconds_left, total_seconds):
     """
     st.markdown(svg, unsafe_allow_html=True)
 
-# --------------------------------------------------
-# CERTIFICATE GENERATION (LOGO + PROFESSIONAL MINIMAL)
-# --------------------------------------------------
+# ---------------------------
+# CERTIFICATE GENERATION (IMPROVED)
+# ---------------------------
 def generate_certificate(name, quiz_name, score, total):
-    cert_path = f"data/certificate_{uuid.uuid4()}.pdf"
-    c = canvas.Canvas(cert_path, pagesize=letter)
-    width, height = letter
+    pdf = FPDF('P','mm','A4')
+    pdf.add_page()
+    width = 210
+    height = 297
 
     # BORDER
-    c.setLineWidth(4)
-    c.rect(20, 20, width - 40, height - 40)
+    pdf.set_line_width(2)
+    pdf.set_draw_color(212,175,55) # Gold
+    pdf.rect(10, 10, width-20, height-20)
 
-    # LOGO IF EXISTS
+    # LOGO
     if os.path.exists(LOGO_FILE):
-        logo = ImageReader(LOGO_FILE)
-        c.drawImage(logo, width/2 - 60, height - 150, width=120, height=80, preserveAspectRatio=True)
+        pdf.image(LOGO_FILE, x=width/2 - 30, y=20, w=60)
 
     # HEADER
-    c.setFont("Helvetica-Bold", 26)
-    c.drawCentredString(width/2, height - 180, "Certificate of Achievement")
+    pdf.set_font("Helvetica","B",26)
+    pdf.ln(50)
+    pdf.cell(0,20,"Certificate of Achievement",0,1,'C')
 
     # NAME
-    c.setFont("Helvetica-Bold", 22)
-    c.drawCentredString(width/2, height - 240, name)
+    pdf.set_font("Helvetica","B",22)
+    pdf.cell(0,10,name,0,1,'C')
 
-    c.setFont("Helvetica", 16)
-    c.drawCentredString(width/2, height - 270, "has successfully completed")
+    pdf.set_font("Helvetica","",16)
+    pdf.cell(0,10,"has successfully completed",0,1,'C')
 
-    c.setFont("Helvetica-Bold", 18)
-    c.drawCentredString(width/2, height - 300, quiz_name)
+    pdf.set_font("Helvetica","B",18)
+    pdf.cell(0,10,quiz_name,0,1,'C')
 
     # SCORE
-    c.setFont("Helvetica", 14)
-    c.drawCentredString(width/2, height - 340, f"Score: {score}/{total}")
+    pdf.set_font("Helvetica","",14)
+    pdf.cell(0,10,f"Score: {score}/{total}",0,1,'C')
 
     # DATE
-    c.drawCentredString(width/2, height - 370, datetime.now().strftime("%d %B %Y"))
+    pdf.cell(0,10,datetime.now().strftime("%d %B %Y"),0,1,'C')
 
-    c.showPage()
-    c.save()
-    return cert_path
+    # SIGNATURE LINE
+    pdf.line(width-70, height-50, width-10, height-50)
+    pdf.set_font("Helvetica","",12)
+    pdf.text(width-68, height-45, "Authorized Signature")
 
-# --------------------------------------------------
+    path = f"data/certificate_{uuid.uuid4()}.pdf"
+    pdf.output(path)
+    return path
+
+# ---------------------------
 # STUDENT QUIZ PAGE
-# --------------------------------------------------
+# ---------------------------
 def student_quiz_page(quiz_id):
     if quiz_id not in quizzes:
         st.error("Invalid Quiz")
         return
 
     quiz = quizzes[quiz_id]
-
     st.title(f"📝 {quiz['name']}")
     st.info(f"Time Limit: {quiz['time_limit']} min")
 
@@ -163,20 +165,18 @@ def student_quiz_page(quiz_id):
             ss.answers = {}
 
             # SHUFFLE QUESTIONS
-            quiz["questions"] = quiz["questions"].copy()
             import random
             random.shuffle(quiz["questions"])
 
             st.rerun()
-
     else:
         start = ss.start_time
         total_sec = quiz["time_limit"] * 60
         remaining = total_sec - (time.time() - start)
 
         if remaining <= 0:
-            ss.quiz_started = False
             st.error("⏳ Time Over! Auto-submitted.")
+            ss.quiz_started = False
             st.rerun()
 
         circular_timer(remaining, total_sec)
@@ -187,43 +187,34 @@ def student_quiz_page(quiz_id):
         st.write(f"### Q{idx+1}/{len(quiz['questions'])}")
         st.write(q["question"])
 
-        qtype = q.get("type", "mcq")
-
+        qtype = q.get("type","mcq")
+        import random
         if qtype == "mcq":
-            import random
             opts = q["options"].copy()
             random.shuffle(opts)
             ans = st.radio("Select one:", opts, key=f"q{idx}")
-
-        elif qtype == "truefalse":
-            ans = st.radio("Select:", ["True", "False"], key=f"q{idx}")
-
-        elif qtype == "short":
+        elif qtype=="truefalse":
+            ans = st.radio("Select:", ["True","False"], key=f"q{idx}")
+        else:
             ans = st.text_input("Answer:", key=f"q{idx}")
-
-        elif qtype == "fill":
-            ans = st.text_input("Fill in the blank:", key=f"q{idx}")
 
         ss.answers[idx] = ans
 
-        col1, col2 = st.columns(2)
-
+        col1,col2 = st.columns(2)
         with col1:
-            if idx > 0 and st.button("⬅ Previous"):
-                ss.question_index -= 1
+            if idx>0 and st.button("⬅ Previous"):
+                ss.question_index-=1
                 st.rerun()
-
         with col2:
-            if idx < len(quiz["questions"])-1 and st.button("Next ➡"):
-                ss.question_index += 1
+            if idx<len(quiz["questions"])-1 and st.button("Next ➡"):
+                ss.question_index+=1
                 st.rerun()
-            elif idx == len(quiz["questions"])-1 and st.button("Submit Quiz"):
-                score = 0
+            elif idx==len(quiz["questions"])-1 and st.button("Submit Quiz"):
+                score=0
                 for i, ques in enumerate(quiz["questions"]):
-                    if str(ss.answers.get(i, "")).strip().lower() == str(ques["answer"]).strip().lower():
-                        score += 1
-
-                rid = str(uuid.uuid4())
+                    if str(ss.answers.get(i,"")).strip().lower() == str(ques["answer"]).strip().lower():
+                        score+=1
+                rid=str(uuid.uuid4())
                 results[rid] = {
                     "name": ss.name,
                     "regno": ss.regno,
@@ -233,36 +224,31 @@ def student_quiz_page(quiz_id):
                     "date": str(datetime.now())
                 }
                 save_json(RESULT_FILE, results)
-
                 st.success(f"🎉 Quiz Submitted! Score: {score}/{len(quiz['questions'])}")
 
-                # Certificate
+                # CERTIFICATE
                 cert_path = generate_certificate(ss.name, quiz["name"], score, len(quiz["questions"]))
-                with open(cert_path, "rb") as f:
-                    st.download_button("🎖 Download Certificate", data=f, file_name="certificate.pdf")
+                with open(cert_path,"rb") as f:
+                    st.download_button("🎖 Download Certificate", f, "certificate.pdf")
 
                 st.balloons()
                 ss.quiz_started = False
 
-# --------------------------------------------------
+# ---------------------------
 # ADMIN PANEL
-# --------------------------------------------------
+# ---------------------------
 def admin_panel():
     st.title("👑 Admin Dashboard")
+    tabs = st.tabs(["➕ Create Quiz","📄 Quiz List","📊 Results","🎓 Question Bank","🏅 Leaderboard","📤 Export"])
 
-    tabs = st.tabs(["➕ Create Quiz", "📄 Quiz List", "📊 Results", "🎓 Question Bank", "🏅 Leaderboard", "📤 Export"])
-
-    # --------------------------------------------------
-    # CREATE QUIZ
-    # --------------------------------------------------
+    # CREATE QUIZ & QUESTIONS
     with tabs[0]:
         st.subheader("Create Quiz")
-        name = st.text_input("Quiz Name")
-        time_limit = st.number_input("Time Limit (min)", 1, 60, 5)
-
+        qname = st.text_input("Quiz Name")
+        tlimit = st.number_input("Time Limit (min)",1,60,5)
         if st.button("Create Quiz"):
             qid = str(uuid.uuid4())
-            quizzes[qid] = {"name": name, "time_limit": time_limit, "questions": []}
+            quizzes[qid] = {"name":qname,"time_limit":tlimit,"questions":[]}
             save_json(QUIZ_FILE, quizzes)
             st.success("Quiz Created!")
 
@@ -271,24 +257,22 @@ def admin_panel():
         if quizzes:
             qid = st.selectbox("Select Quiz", quizzes.keys(), format_func=lambda x: quizzes[x]["name"])
             text = st.text_input("Question")
-            qtype = st.selectbox("Question Type", ["mcq", "truefalse", "short", "fill"])
-
-            if qtype == "mcq":
-                options = st.text_input("Options (comma)")
-                answer = st.text_input("Correct Answer")
-            elif qtype == "truefalse":
-                options = ["True", "False"]
-                answer = st.selectbox("Correct Answer", options)
+            qtype = st.selectbox("Question Type", ["mcq","truefalse","short","fill"])
+            if qtype=="mcq":
+                opts = st.text_input("Options (comma)")
+                ans = st.text_input("Correct Answer")
+            elif qtype=="truefalse":
+                opts=["True","False"]
+                ans = st.selectbox("Correct Answer", opts)
             else:
-                options = []
-                answer = st.text_input("Correct Answer")
-
+                opts=[]
+                ans = st.text_input("Correct Answer")
             if st.button("Add Question"):
                 quizzes[qid]["questions"].append({
                     "question": text,
                     "type": qtype,
-                    "options": options if isinstance(options, list) else [o.strip() for o in options.split(",")],
-                    "answer": answer
+                    "options": opts if isinstance(opts,list) else [o.strip() for o in opts.split(",")],
+                    "answer": ans
                 })
                 save_json(QUIZ_FILE, quizzes)
                 st.success("Question Added!")
@@ -297,36 +281,30 @@ def admin_panel():
         st.subheader("Upload Certificate Logo")
         logo = st.file_uploader("Upload PNG Logo", type=["png"])
         if logo:
-            with open(LOGO_FILE, "wb") as f:
+            with open(LOGO_FILE,"wb") as f:
                 f.write(logo.read())
             st.success("Logo Uploaded!")
 
-    # --------------------------------------------------
     # QUIZ LIST
-    # --------------------------------------------------
     with tabs[1]:
         st.subheader("All Quizzes")
         query = st.text_input("Search Quiz")
-        for qid, q in quizzes.items():
+        for qid,q in quizzes.items():
             if query.lower() in q["name"].lower():
                 st.markdown(f"<div class='quiz-card'>", unsafe_allow_html=True)
                 st.write(f"### {q['name']}")
                 st.write(f"Time: {q['time_limit']} min")
                 st.write(f"Questions: {len(q['questions'])}")
-                st.code(f"{st.experimental_get_query_params()}?quiz={qid}")
                 if st.button("Delete", key=qid):
                     del quizzes[qid]
                     save_json(QUIZ_FILE, quizzes)
                     st.rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
 
-    # --------------------------------------------------
     # RESULTS
-    # --------------------------------------------------
     with tabs[2]:
         st.subheader("Live Results")
         st_autorefresh(interval=4000)
-
         if results:
             df = pd.DataFrame(results).T
             st.dataframe(df)
@@ -334,82 +312,72 @@ def admin_panel():
         else:
             st.info("No results yet.")
 
-    # --------------------------------------------------
     # QUESTION BANK
-    # --------------------------------------------------
     with tabs[3]:
         st.subheader("Question Bank")
-        st.info("All added questions can be reused here.")
-
         bank = []
-        for qid, qz in quizzes.items():
+        for qid,qz in quizzes.items():
             for q in qz["questions"]:
                 bank.append(q)
-
         if bank:
             st.dataframe(pd.DataFrame(bank))
         else:
-            st.info("No questions in bank.")
+            st.info("No questions yet.")
 
-    # --------------------------------------------------
     # LEADERBOARD
-    # --------------------------------------------------
     with tabs[4]:
         st.subheader("Leaderboard")
         if results:
-            df = pd.DataFrame(results).T
+            df=pd.DataFrame(results).T
             df.sort_values("score", ascending=False, inplace=True)
-            st.dataframe(df[["name", "score", "total", "date"]])
+            st.dataframe(df[["name","score","total","date"]])
         else:
             st.info("No submissions yet.")
 
-    # --------------------------------------------------
     # EXPORT
-    # --------------------------------------------------
     with tabs[5]:
         st.subheader("Export Results")
-
         if results:
-            df = pd.DataFrame(results).T
-
-            csv = df.to_csv().encode("utf-8")
+            df=pd.DataFrame(results).T
+            csv=df.to_csv().encode("utf-8")
             st.download_button("📥 Download CSV", csv, "results.csv")
-
-            # Simple PDF export
+            # PDF
             pdf_path = "data/results_export.pdf"
-            c = canvas.Canvas(pdf_path, pagesize=letter)
-            c.drawString(50, 770, "Quiz Results Export")
-            n = 720
-            for i, row in df.iterrows():
-                c.drawString(50, n, f"{row['name']} - {row['score']}/{row['total']} ({row['date']})")
-                n -= 20
-            c.save()
-
-            with open(pdf_path, "rb") as f:
+            pdf=FPDF()
+            pdf.add_page()
+            pdf.set_font("Helvetica","B",16)
+            pdf.cell(0,10,"Quiz Results Export",0,1,"C")
+            pdf.set_font("Helvetica","",12)
+            y=30
+            for i,row in df.iterrows():
+                pdf.set_y(y)
+                pdf.cell(0,10,f"{row['name']} - {row['score']}/{row['total']} ({row['date']})",0,1)
+                y+=10
+            pdf.output(pdf_path)
+            with open(pdf_path,"rb") as f:
                 st.download_button("📄 Download PDF", f, "results.pdf")
         else:
             st.info("No data available.")
 
-# --------------------------------------------------
+# ---------------------------
 # LOGIN PAGE
-# --------------------------------------------------
+# ---------------------------
 def admin_login():
     st.title("🔐 Admin Login")
     user = st.text_input("Username")
-    pwd = st.text_input("Password", type="password")
-
+    pwd  = st.text_input("Password", type="password")
     if st.button("Login"):
-        if user == "admin" and pwd == "admin123":
-            ss.logged_in = True
+        if user=="admin" and pwd=="admin123":
+            ss.logged_in=True
             st.rerun()
         else:
-            st.error("Invalid Login")
+            st.error("Invalid credentials!")
 
-# --------------------------------------------------
+# ---------------------------
 # ROUTER
-# --------------------------------------------------
+# ---------------------------
 params = st.experimental_get_query_params()
-quiz_id = params.get("quiz", [None])[0]
+quiz_id = params.get("quiz",[None])[0]
 
 if quiz_id:
     student_quiz_page(quiz_id)
