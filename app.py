@@ -5,6 +5,7 @@ import altair as alt
 from datetime import datetime
 from fpdf import FPDF
 from streamlit_autorefresh import st_autorefresh
+from PIL import Image
 
 # ---------------------------
 # CREATE DATA FOLDER
@@ -50,6 +51,7 @@ st.markdown("""
 }
 .quiz-card:hover { background:#f0f0f0; }
 .dark .quiz-card { background:#2d2d2d; border-color:#555; }
+.button-style { background-color: #4CAF50; color: white; padding: 8px 16px; border-radius: 6px; border:none; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -69,7 +71,6 @@ ss.setdefault("theme", "light")
 # ---------------------------
 if st.button("Toggle Dark/Light Theme"):
     ss.theme = "dark" if ss.theme=="light" else "light"
-
 if ss.theme == "dark":
     st.markdown("<body class='dark'>", unsafe_allow_html=True)
 
@@ -91,7 +92,7 @@ def circular_timer(seconds_left, total_seconds):
     st.markdown(svg, unsafe_allow_html=True)
 
 # ---------------------------
-# CERTIFICATE GENERATION (IMPROVED)
+# CERTIFICATE GENERATION
 # ---------------------------
 def generate_certificate(name, quiz_name, score, total):
     pdf = FPDF('P','mm','A4')
@@ -251,6 +252,7 @@ def admin_panel():
             quizzes[qid] = {"name":qname,"time_limit":tlimit,"questions":[]}
             save_json(QUIZ_FILE, quizzes)
             st.success("Quiz Created!")
+            st.text_input("Share Link:", f"{st.secrets.get('APP_URL','http://localhost:8501')}?quiz={qid}")
 
         st.write("---")
         st.subheader("Add Questions")
@@ -295,7 +297,11 @@ def admin_panel():
                 st.write(f"### {q['name']}")
                 st.write(f"Time: {q['time_limit']} min")
                 st.write(f"Questions: {len(q['questions'])}")
-                if st.button("Delete", key=qid):
+                url = f"{st.secrets.get('APP_URL','http://localhost:8501')}?quiz={qid}"
+                st.code(url)
+                if st.button("Copy Link", key=f"copy_{qid}"):
+                    st.experimental_set_query_params(quiz=qid)
+                if st.button("Delete", key=f"del_{qid}"):
                     del quizzes[qid]
                     save_json(QUIZ_FILE, quizzes)
                     st.rerun()
