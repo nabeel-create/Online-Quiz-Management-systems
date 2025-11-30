@@ -68,9 +68,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------
-# CIRCULAR TIMER (UPDATE ONLY PLACEHOLDER)
+# CIRCULAR TIMER
 # ---------------------------
-def circular_timer(seconds_left, total_seconds, placeholder):
+def circular_timer(seconds_left, total_seconds):
     pct = seconds_left / total_seconds
     radius = 80
     color = "#4CAF50" if pct > 0.2 else "#FF0000"
@@ -82,7 +82,7 @@ def circular_timer(seconds_left, total_seconds, placeholder):
       <text x="100" y="110" text-anchor="middle" font-size="24" fill="black">{int(seconds_left)}s</text>
     </svg>
     """
-    placeholder.markdown(svg, unsafe_allow_html=True)
+    return svg
 
 # ---------------------------
 # CERTIFICATE GENERATION
@@ -188,12 +188,20 @@ def student_quiz_page(quiz_id):
                 if "options" in q: random.shuffle(q["options"])
             st.experimental_rerun()
     else:
-        # Placeholder for timer
+        # --------- TIMER PLACEHOLDER (Auto-refresh only timer) ----------
         timer_placeholder = st.empty()
-        total_sec = quiz["time_limit"] * 60
-        elapsed = time.time() - ss.start_time
-        remaining = total_sec - elapsed
-        circular_timer(remaining,total_sec,timer_placeholder)
+        total_sec = quiz["time_limit"]*60
+        while True:
+            elapsed = time.time() - ss.start_time
+            remaining = total_sec - elapsed
+            if remaining <= 0:
+                st.warning("⏳ Time Over! Auto-submitting...")
+                submit_quiz(quiz_id)
+                break
+            timer_placeholder.markdown(circular_timer(remaining,total_sec), unsafe_allow_html=True)
+            time.sleep(1)
+            # break after placeholder update to allow Streamlit interaction
+            break
 
         idx = ss.question_index
         q = quiz["questions"][idx]
@@ -203,9 +211,9 @@ def student_quiz_page(quiz_id):
         qtype = q.get("type","mcq")
         ans = None
         if qtype=="mcq":
-            ans = st.radio("Select one:", q["options"], key=f"q{idx}")
+            ans = st.radio("Select one:", q["options"], key=f"q{idx}", index=q["options"].index(ss.answers.get(idx,q["options"][0])) if ss.answers.get(idx) else 0)
         elif qtype=="truefalse":
-            ans = st.radio("Select:", ["True","False"], key=f"q{idx}")
+            ans = st.radio("Select:", ["True","False"], key=f"q{idx}", index=["True","False"].index(ss.answers.get(idx,"True")))
         else:
             ans = st.text_input("Answer:", key=f"q{idx}")
         ss.answers[idx] = ans
@@ -220,111 +228,12 @@ def student_quiz_page(quiz_id):
 # ---------------------------
 # ADMIN PANEL
 # ---------------------------
-def admin_panel():
-    st.title("👑 Admin Dashboard")
-    tabs = st.tabs(["➕ Create Quiz","📄 Quiz List","📊 Results","🎓 Question Bank","🏅 Leaderboard","📤 Export"])
-
-    # CREATE QUIZ
-    with tabs[0]:
-        st.subheader("Create Quiz")
-        qname = st.text_input("Quiz Name")
-        tlimit = st.number_input("Time Limit (min)",1,60,5)
-        if st.button("Create Quiz"):
-            qid = str(uuid.uuid4())
-            quizzes[qid] = {"name":qname,"time_limit":tlimit,"questions":[]}
-            save_json(QUIZ_FILE, quizzes)
-            st.success("Quiz Created!")
-            st.text_input("Share Link:", f"{st.secrets.get('APP_URL','http://localhost:8501')}?quiz={qid}")
-        st.write("---")
-        st.subheader("Add Questions")
-        if quizzes:
-            qid = st.selectbox("Select Quiz", quizzes.keys(), format_func=lambda x: quizzes[x]["name"])
-            text = st.text_input("Question")
-            qtype = st.selectbox("Type", ["mcq","truefalse","short","fill"])
-            opts = []
-            ans = ""
-            if qtype=="mcq":
-                opts = st.text_input("Options (comma)").split(",")
-                ans = st.text_input("Correct Answer")
-            elif qtype=="truefalse":
-                opts=["True","False"]
-                ans = st.selectbox("Correct Answer", opts)
-            else:
-                ans = st.text_input("Correct Answer")
-            if st.button("Add Question"):
-                quizzes[qid]["questions"].append({"question":text,"type":qtype,"options":opts,"answer":ans})
-                save_json(QUIZ_FILE, quizzes)
-                st.success("Question Added!")
-        st.write("---")
-        st.subheader("Upload Certificate Logo")
-        logo = st.file_uploader("Upload PNG Logo", type=["png"])
-        if logo:
-            with open(LOGO_FILE,"wb") as f: f.write(logo.read())
-            st.success("Logo Uploaded!")
-
-    # QUIZ LIST
-    with tabs[1]:
-        st.subheader("All Quizzes")
-        query = st.text_input("Search Quiz")
-        for qid,q in quizzes.items():
-            if query.lower() in q["name"].lower():
-                st.markdown(f"<div class='quiz-card'>", unsafe_allow_html=True)
-                st.write(f"### {q['name']}")
-                st.write(f"Time: {q['time_limit']} min | Questions: {len(q['questions'])}")
-                url=f"{st.secrets.get('APP_URL','http://localhost:8501')}?quiz={qid}"
-                st.code(url)
-                if st.button("Delete", key=f"del_{qid}"): del quizzes[qid]; save_json(QUIZ_FILE,quizzes); st.experimental_rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
-
-    # RESULTS
-    with tabs[2]:
-        st.subheader("Live Results")
-        if results:
-            df=pd.DataFrame(results).T
-            st.dataframe(df)
-            st.metric("Total Submissions", len(df))
-        else: st.info("No results yet.")
-
-    # QUESTION BANK
-    with tabs[3]:
-        st.subheader("Question Bank")
-        bank=[]
-        for qid,qz in quizzes.items():
-            for q in qz["questions"]: bank.append(q)
-        if bank: st.dataframe(pd.DataFrame(bank))
-        else: st.info("No questions yet.")
-
-    # LEADERBOARD
-    with tabs[4]:
-        st.subheader("Leaderboard")
-        if results:
-            df=pd.DataFrame(results).T
-            if "points" not in df.columns: df["points"]=0
-            df.sort_values("points", ascending=False, inplace=True)
-            st.dataframe(df[["name","points","score","total","date"]])
-        else: st.info("No submissions yet.")
-
-    # EXPORT
-    with tabs[5]:
-        st.subheader("Export Results")
-        if results:
-            df=pd.DataFrame(results).T
-            csv=df.to_csv().encode("utf-8")
-            st.download_button("📥 Download CSV", csv, "results.csv")
-        else: st.info("No data available.")
+# ... Keep your existing admin_panel code unchanged ...
 
 # ---------------------------
 # ADMIN LOGIN
 # ---------------------------
-def admin_login():
-    st.title("🔐 Admin Login")
-    user = st.text_input("Username")
-    pwd = st.text_input("Password", type="password")
-    if st.button("Login"):
-        if user=="admin" and pwd=="admin123":
-            ss.logged_in=True
-            st.experimental_rerun()
-        else: st.error("Invalid credentials!")
+# ... Keep your existing admin_login code unchanged ...
 
 # ---------------------------
 # ROUTER
