@@ -170,39 +170,57 @@ def admin_panel():
     tabs = st.tabs(["➕ Create Quiz","📄 Quiz List","📊 Results","🎓 Question Bank","🏅 Leaderboard","📤 Export"])
     
     with tabs[0]:
-        st.subheader("Create Quiz"); qname=st.text_input("Quiz Name"); tlimit=st.number_input("Time Limit per question",10,300,60)
-        if st.button("Create Quiz"): qid=str(uuid.uuid4()); quizzes[qid]={"name":qname,"question_time":tlimit,"questions":[]}; save_json(QUIZ_FILE,quizzes); st.success("Quiz Created!")
+        st.subheader("Create Quiz")
+        qname=st.text_input("Quiz Name")
+        tlimit=st.number_input("Time Limit per question",10,300,60)
+        if st.button("Create Quiz"):
+            qid=str(uuid.uuid4())
+            quizzes[qid]={"name":qname,"question_time":tlimit,"questions":[]}
+            save_json(QUIZ_FILE,quizzes); st.success("Quiz Created!")
         st.subheader("Add Questions")
         if quizzes:
             qid=st.selectbox("Select Quiz", quizzes.keys(), format_func=lambda x: quizzes[x]["name"])
-            text=st.text_input("Question"); qtype=st.selectbox("Type",["mcq","truefalse","short","fill"])
+            text=st.text_input("Question")
+            qtype=st.selectbox("Type",["mcq","truefalse","short","fill"])
             opts=[]; ans=""
             if qtype=="mcq": opts=st.text_input("Options (comma)").split(","); ans=st.text_input("Correct Answer")
             elif qtype=="truefalse": opts=["True","False"]; ans=st.selectbox("Correct Answer",opts)
             else: ans=st.text_input("Correct Answer")
             if st.button("Add Question"): quizzes[qid]["questions"].append({"question":text,"type":qtype,"options":opts,"answer":ans}); save_json(QUIZ_FILE,quizzes); st.success("Question Added!")
-        st.subheader("Upload Logo"); logo=st.file_uploader("PNG Logo", type=["png"]); 
+        st.subheader("Upload Logo")
+        logo=st.file_uploader("PNG Logo", type=["png"])
         if logo: open(LOGO_FILE,"wb").write(logo.read()); st.success("Logo Uploaded!")
     
     with tabs[1]:
-        st.subheader("All Quizzes"); query=st.text_input("Search Quiz")
+        st.subheader("All Quizzes")
+        query=st.text_input("Search Quiz")
         for qid,q in quizzes.items():
             if query.lower() in q["name"].lower():
                 st.markdown(f"<div class='quiz-card'>",unsafe_allow_html=True)
-                st.write(f"### {q['name']}"); st.write(f"Time/question: {q['question_time']}s | Questions: {len(q['questions'])}")
-                url=f"{st.secrets.get('APP_URL','http://localhost:8501')}?quiz={qid}"; st.code(url)
+                st.write(f"### {q['name']}")
+                st.write(f"Time/question: {q['question_time']}s | Questions: {len(q['questions'])}")
+                url=f"{st.secrets.get('APP_URL','http://localhost:8501')}?quiz={qid}"
+                st.code(url)
                 if st.button("Delete",key=f"del_{qid}"): del quizzes[qid]; save_json(QUIZ_FILE,quizzes); st.rerun()
                 st.markdown("</div>",unsafe_allow_html=True)
     
     with tabs[2]:
-        st.subheader("Live Results"); st_autorefresh(interval=4000)
-        if results: df=pd.DataFrame(results).T; st.dataframe(df)
-        else: st.info("No results yet.")
+        st.subheader("Live Results")
+        st_autorefresh(interval=4000)
+        if results:
+            df=pd.DataFrame(results).T
+            st.dataframe(df)
+        else:
+            st.info("No results yet.")
     
     with tabs[3]:
-        st.subheader("Question Bank"); bank=[]
+        st.subheader("Question Bank")
+        bank=[]
         for qid,qz in quizzes.items(): bank.extend(qz["questions"])
-        if bank: st.dataframe(pd.DataFrame(bank)); else: st.info("No questions yet.")
+        if bank:
+            st.dataframe(pd.DataFrame(bank))
+        else:
+            st.info("No questions yet.")
     
     with tabs[4]:
         st.subheader("Leaderboard")
@@ -211,7 +229,8 @@ def admin_panel():
             if "points" not in df.columns: df["points"]=0
             df.sort_values("points",ascending=False,inplace=True)
             st.dataframe(df[["name","points","score","total","date"]])
-        else: st.info("No submissions yet.")
+        else:
+            st.info("No submissions yet.")
     
     with tabs[5]:
         st.subheader("Export Results")
@@ -219,14 +238,16 @@ def admin_panel():
             df=pd.DataFrame(results).T
             csv=df.to_csv().encode("utf-8")
             st.download_button("📥 Download CSV",csv,"results.csv")
-        else: st.info("No data available.")
+        else:
+            st.info("No data available.")
 
 # ---------------------------
 # ADMIN LOGIN
 # ---------------------------
 def admin_login():
     st.title("🔐 Admin Login")
-    user=st.text_input("Username"); pwd=st.text_input("Password",type="password")
+    user=st.text_input("Username")
+    pwd=st.text_input("Password",type="password")
     if st.button("Login"):
         if user=="admin" and pwd=="admin123": ss.logged_in=True; st.rerun()
         else: st.error("Invalid credentials!")
