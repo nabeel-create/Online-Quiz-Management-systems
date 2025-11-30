@@ -162,6 +162,13 @@ def submit_quiz(quiz_id):
 # ---------------------------
 # STUDENT QUIZ PAGE
 # ---------------------------
+from streamlit_autorefresh import st_autorefresh
+
+# Inside student_quiz_page()
+
+import math
+import time
+
 def student_quiz_page(quiz_id):
     if quiz_id not in quizzes:
         st.error("Invalid Quiz")
@@ -188,13 +195,22 @@ def student_quiz_page(quiz_id):
                 if "options" in q: random.shuffle(q["options"])
             st.experimental_rerun()
     else:
-        # Placeholder for timer
+        # Timer placeholder
         timer_placeholder = st.empty()
         total_sec = quiz["time_limit"] * 60
         elapsed = time.time() - ss.start_time
         remaining = total_sec - elapsed
-        circular_timer(remaining,total_sec,timer_placeholder)
+        if remaining <= 0:
+            st.warning("⏳ Time Over! Auto-submitting...")
+            submit_quiz(quiz_id)
+            return
 
+        circular_timer(remaining, total_sec, timer_placeholder)
+        
+        # Auto-refresh timer every 1 second without refreshing page
+        st_autorefresh(interval=1000, key="timer_refresh")
+
+        # Show question
         idx = ss.question_index
         q = quiz["questions"][idx]
         st.progress((idx+1)/len(quiz["questions"]))
@@ -203,19 +219,21 @@ def student_quiz_page(quiz_id):
         qtype = q.get("type","mcq")
         ans = None
         if qtype=="mcq":
-            ans = st.radio("Select one:", q["options"], key=f"q{idx}")
+            ans = st.radio("Select one:", q["options"], key=f"q{idx}", index=q["options"].index(ss.answers.get(idx,q["options"][0])) if ss.answers.get(idx) else 0)
         elif qtype=="truefalse":
-            ans = st.radio("Select:", ["True","False"], key=f"q{idx}")
+            ans = st.radio("Select:", ["True","False"], key=f"q{idx}", index=["True","False"].index(ss.answers.get(idx,"True")))
         else:
-            ans = st.text_input("Answer:", key=f"q{idx}")
+            ans = st.text_input("Answer:", value=ss.answers.get(idx,""), key=f"q{idx}")
         ss.answers[idx] = ans
 
+        # Navigation
         col1,col2 = st.columns(2)
         with col1:
             if idx>0 and st.button("⬅ Previous"): ss.question_index-=1; st.experimental_rerun()
         with col2:
             if idx<len(quiz["questions"])-1 and st.button("Next ➡"): ss.question_index+=1; st.experimental_rerun()
             elif idx==len(quiz["questions"])-1 and st.button("Submit Quiz"): submit_quiz(quiz_id)
+
 
 # ---------------------------
 # ADMIN PANEL
