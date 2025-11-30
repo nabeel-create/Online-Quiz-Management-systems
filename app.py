@@ -45,7 +45,7 @@ ss.setdefault("start_time", None)
 ss.setdefault("theme", "light")
 ss.setdefault("points", 0)
 ss.setdefault("consecutive_correct", 0)
-ss.setdefault("negative_marking", True)  # default enabled
+ss.setdefault("negative_marking", True)
 
 # ---------------------------
 # DARK MODE
@@ -68,13 +68,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------
-# TIMER SVG
+# TIMER SVG (1-SECOND REFRESH)
 # ---------------------------
-def circular_timer(seconds_left,total_seconds):
-    pct = seconds_left/total_seconds
+def circular_timer(seconds_left, total_seconds):
+    pct = max(seconds_left / total_seconds, 0)
     radius = 80
-    color = "#4CAF50" if pct>0.2 else "#FF0000"
-    svg=f"""
+    color = "#4CAF50" if pct > 0.2 else "#FF0000"
+    svg = f"""
     <svg width="200" height="200">
       <circle cx="100" cy="100" r="{radius}" fill="none" stroke="#eee" stroke-width="15"/>
       <circle cx="100" cy="100" r="{radius}" fill="none" stroke="{color}" stroke-width="15"
@@ -82,7 +82,7 @@ def circular_timer(seconds_left,total_seconds):
       <text x="100" y="110" text-anchor="middle" font-size="24" fill="black">{int(seconds_left)}s</text>
     </svg>
     """
-    st.markdown(svg,unsafe_allow_html=True)
+    st.markdown(svg, unsafe_allow_html=True)
 
 # ---------------------------
 # CERTIFICATE GENERATION
@@ -122,67 +122,6 @@ def generate_certificate(name,quiz_name,score,total,points):
     path=f"data/certificate_{uuid.uuid4()}.pdf"
     pdf.output(path)
     return path
-
-# ---------------------------
-# STUDENT QUIZ PAGE
-# ---------------------------
-def student_quiz_page(quiz_id):
-    if quiz_id not in quizzes:
-        st.error("Invalid Quiz")
-        return
-    quiz=quizzes[quiz_id]
-    st.title(f"📝 {quiz['name']}")
-    st.info(f"Time Limit: {quiz['time_limit']} min")
-    
-    if not ss.quiz_started:
-        ss.name = st.text_input("Your Name")
-        ss.regno = st.text_input("Registration Number")
-        ss.negative_marking = st.checkbox("Enable Negative Marking?", value=True)
-        if st.button("Start Quiz"):
-            if not ss.name or not ss.regno:
-                st.error("Enter details")
-                return
-            ss.quiz_started=True
-            ss.start_time=time.time()
-            ss.question_index=0
-            ss.answers={}
-            ss.consecutive_correct=0
-            ss.points=0
-            random.shuffle(quiz["questions"])
-            for q in quiz["questions"]:
-                if "options" in q: random.shuffle(q["options"])
-            st.rerun()
-    else:
-        # Calculate remaining seconds
-        total_sec = quiz["time_limit"]*60
-        elapsed = int(time.time()-ss.start_time)
-        remaining = total_sec - elapsed
-        if remaining <=0:
-            st.warning("⏳ Time Over! Auto-submitting...")
-            submit_quiz(quiz_id)
-            return
-        circular_timer(remaining,total_sec)
-        idx = ss.question_index
-        q = quiz["questions"][idx]
-        st.progress((idx+1)/len(quiz["questions"]))
-        st.write(f"### Q{idx+1}/{len(quiz['questions'])}")
-        st.write(q["question"])
-        qtype = q.get("type","mcq")
-        ans = None
-        # Real-time saving per selection
-        if qtype=="mcq":
-            ans = st.radio("Select one:", q["options"], key=f"q{idx}", on_change=lambda i=idx: save_answer(i))
-        elif qtype=="truefalse":
-            ans = st.radio("Select:", ["True","False"], key=f"q{idx}", on_change=lambda i=idx: save_answer(i))
-        else:
-            ans = st.text_input("Answer:", key=f"q{idx}", on_change=lambda i=idx: save_answer(i))
-        ss.answers[idx]=ans
-        col1,col2=st.columns(2)
-        with col1:
-            if idx>0 and st.button("⬅ Previous"): ss.question_index-=1; st.rerun()
-        with col2:
-            if idx<len(quiz["questions"])-1 and st.button("Next ➡"): ss.question_index+=1; st.rerun()
-            elif idx==len(quiz["questions"])-1 and st.button("Submit Quiz"): submit_quiz(quiz_id)
 
 # ---------------------------
 # SAVE ANSWER FUNCTION
@@ -225,6 +164,71 @@ def submit_quiz(quiz_id):
         st.download_button("🎖 Download Certificate",f,"certificate.pdf")
     st.balloons()
     ss.quiz_started=False
+
+# ---------------------------
+# STUDENT QUIZ PAGE
+# ---------------------------
+def student_quiz_page(quiz_id):
+    if quiz_id not in quizzes:
+        st.error("Invalid Quiz")
+        return
+    quiz=quizzes[quiz_id]
+    st.title(f"📝 {quiz['name']}")
+    st.info(f"Time Limit: {quiz['time_limit']} min")
+    
+    if not ss.quiz_started:
+        ss.name = st.text_input("Your Name")
+        ss.regno = st.text_input("Registration Number")
+        ss.negative_marking = st.checkbox("Enable Negative Marking?", value=True)
+        if st.button("Start Quiz"):
+            if not ss.name or not ss.regno:
+                st.error("Enter details")
+                return
+            ss.quiz_started=True
+            ss.start_time=time.time()
+            ss.question_index=0
+            ss.answers={}
+            ss.consecutive_correct=0
+            ss.points=0
+            random.shuffle(quiz["questions"])
+            for q in quiz["questions"]:
+                if "options" in q: random.shuffle(q["options"])
+            st.rerun()
+    else:
+        # Auto-refresh every 1 second
+        st_autorefresh(interval=1000, key="quiz_timer")
+
+        total_sec = quiz["time_limit"]*60
+        elapsed = int(time.time()-ss.start_time)
+        remaining = total_sec - elapsed
+        if remaining <=0:
+            st.warning("⏳ Time Over! Auto-submitting...")
+            submit_quiz(quiz_id)
+            return
+
+        circular_timer(remaining,total_sec)
+
+        idx = ss.question_index
+        q = quiz["questions"][idx]
+        st.progress((idx+1)/len(quiz["questions"]))
+        st.write(f"### Q{idx+1}/{len(quiz['questions'])}")
+        st.write(q["question"])
+        qtype = q.get("type","mcq")
+        ans = None
+        if qtype=="mcq":
+            ans = st.radio("Select one:", q.get("options",[]), key=f"q{idx}", on_change=lambda i=idx: save_answer(i))
+        elif qtype=="truefalse":
+            ans = st.radio("Select:", ["True","False"], key=f"q{idx}", on_change=lambda i=idx: save_answer(i))
+        else:
+            ans = st.text_input("Answer:", key=f"q{idx}", on_change=lambda i=idx: save_answer(i))
+        ss.answers[idx]=ans
+
+        col1,col2=st.columns(2)
+        with col1:
+            if idx>0 and st.button("⬅ Previous"): ss.question_index-=1; st.rerun()
+        with col2:
+            if idx<len(quiz["questions"])-1 and st.button("Next ➡"): ss.question_index+=1; st.rerun()
+            elif idx==len(quiz["questions"])-1 and st.button("Submit Quiz"): submit_quiz(quiz_id)
 
 # ---------------------------
 # ADMIN PANEL
